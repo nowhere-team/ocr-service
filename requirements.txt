@@ -4,13 +4,14 @@ uvicorn[standard]==0.32.0
 pydantic==2.10.3
 pydantic-settings==2.6.1
 
-# OCR
-paddleocr==3.0.3
-paddlepaddle==3.0.0b1  # CPU версия
+# OCR - EasyOCR (стабильная альтернатива PaddleOCR)
+easyocr==1.7.2
+torch==2.5.1
+torchvision==0.20.1
 
 # Обработка изображений
 opencv-python-headless==4.10.0.84
-numpy==2.0.2
+numpy==1.26.4  # NumPy 2.x несовместим с PaddlePaddle на Windows
 pillow==11.0.0
 
 # Утилиты
