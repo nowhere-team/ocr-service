@@ -1,0 +1,18 @@
+# Основные зависимости
+-r requirements.txt
+
+# Testing
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+httpx==0.28.1  # Для тестирования FastAPI
+
+# Code quality
+black==24.10.0
+flake8==7.1.1
+mypy==1.13.0
+isort==5.13.2
+
+# Development tools
+ipython==8.31.0
+ipdb==0.13.13

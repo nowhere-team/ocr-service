@@ -1,0 +1,21 @@
+# FastAPI и зависимости
+fastapi==0.115.4
+uvicorn[standard]==0.32.0
+pydantic==2.10.3
+pydantic-settings==2.6.1
+
+# OCR
+paddleocr==3.0.3
+paddlepaddle==3.0.0b1  # CPU версия
+
+# Обработка изображений
+opencv-python-headless==4.10.0.84
+numpy==2.0.2
+pillow==11.0.0
+
+# Утилиты
+python-multipart==0.0.17
+python-dotenv==1.0.1
+
+# Логирование
+structlog==24.4.0
