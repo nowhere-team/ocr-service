@@ -20,7 +20,13 @@ export async function createDatabase(logger: Logger, config: DatabaseConfig) {
 	})
 
 	await db.$client.connect()
-	dbLogger.info('connected to postgres')
+	try {
+		await db.$client`SELECT 1`
+		logger.info('database connected', { url: config.url.replace(/:[^:]*@/, ':***@') })
+	} catch (error) {
+		logger.error('failed to connect to database', { error })
+		throw error
+	}
 
 	return db
 }
@@ -28,5 +34,4 @@ export async function createDatabase(logger: Logger, config: DatabaseConfig) {
 export { schema }
 export type Database = Awaited<ReturnType<typeof createDatabase>>
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Tx = Parameters<Database['transaction']>[0] extends (tx: infer T) => any ? T : never

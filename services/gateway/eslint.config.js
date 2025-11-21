@@ -23,6 +23,7 @@ export default [
 			'no-console': ['warn', { allow: ['error', 'warn'] }],
 			'prefer-const': 'error',
 			'@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+			'@typescript-eslint/no-explicit-any': 'off',
 		},
 	},
 ]

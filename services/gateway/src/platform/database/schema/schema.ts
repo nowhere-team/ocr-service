@@ -13,7 +13,7 @@ export const images = pgTable('images', {
 
 	// where stored
 	originalUrl: varchar('original_url', { length: 512 }).notNull(),
-	processedUrl: varchar('processed_url', { length: 512 }).notNull(),
+	processedUrl: varchar('processed_url', { length: 512 }),
 
 	// metadata
 	fileSize: integer('file_size').notNull(),
@@ -40,7 +40,7 @@ export const recognitionResults = pgTable('recognition_results', {
 
 	// if text
 	rawText: text('raw_text'),
-	confidence: numeric('confidence', { precision: 3, scale: 2 }),
+	confidence: numeric('confidence', { mode: 'number', precision: 3, scale: 2 }),
 	engine: engineEnum('engine'),
 	aligned: boolean('aligned').default(false),
 

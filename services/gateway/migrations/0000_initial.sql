@@ -5,7 +5,7 @@ CREATE TYPE "public"."status_enum" AS ENUM('queued', 'processing', 'completed', 
 CREATE TABLE "images" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"original_url" varchar(512) NOT NULL,
-	"processed_url" varchar(512) NOT NULL,
+	"processed_url" varchar(512),
 	"file_size" integer NOT NULL,
 	"mime_Type" varchar(50) NOT NULL,
 	"width" integer,

@@ -1,5 +1,5 @@
 {
-  "id": "e028284b-f336-41f6-9905-420c3657a450",
+  "id": "edce4d4f-e74f-4fa7-99d2-dd835eaea246",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -25,7 +25,7 @@
           "name": "processed_url",
           "type": "varchar(512)",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "file_size": {
           "name": "file_size",
