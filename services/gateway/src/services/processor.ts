@@ -4,14 +4,12 @@ import { nanoid } from 'nanoid'
 
 import type { Cache } from '@/platform/cache'
 import type { Logger } from '@/platform/logger'
+import type { OCREngines } from '@/platform/ocr-engines'
 import type { Storage } from '@/platform/storage'
 import type { ImagesRepository } from '@/repositories/images'
 import type { RecognitionsRepository } from '@/repositories/recognitions'
 
 export interface ProcessorConfig {
-	tesseractUrl: string
-	paddleocrUrl: string
-	alignerUrl: string
 	confidenceThresholdHigh: number
 	confidenceThresholdLow: number
 }
@@ -45,6 +43,7 @@ export class RecognitionProcessor {
 		private recognitionsRepo: RecognitionsRepository,
 		private storage: Storage,
 		private cache: Cache,
+		private engines: OCREngines,
 		private config: ProcessorConfig,
 		private logger: Logger,
 	) {}
@@ -54,70 +53,78 @@ export class RecognitionProcessor {
 
 		this.logger.info('processing recognition', { imageId, recognitionId })
 
-		// update status to processing
-		await this.recognitionsRepo.update(recognitionId, {
-			status: 'processing',
-		})
+		try {
+			await this.recognitionsRepo.update(recognitionId, {
+				status: 'processing',
+			})
 
-		// get image from cache or storage
-		const imageBuffer = await this.getImageBuffer(imageId)
+			const imageBuffer = await this.getImageBuffer(imageId)
 
-		// try to extract qr first
-		const qrResult = await this.tryExtractQr(imageBuffer)
+			// try to find qr firstly
+			const qrResult = await this.tryExtractQr(imageBuffer)
 
-		if (qrResult) {
+			if (qrResult) {
+				const processingTime = Date.now() - startTime
+
+				await this.recognitionsRepo.update(recognitionId, {
+					status: 'completed',
+					resultType: 'qr',
+					qrData: qrResult.data,
+					qrFormat: qrResult.format,
+					qrLocation: qrResult.location,
+					processingTime,
+					completedAt: new Date(),
+				})
+
+				this.logger.info('qr code extracted', {
+					recognitionId,
+					format: qrResult.format,
+					processingTime,
+				})
+
+				return {
+					resultType: 'qr',
+					qr: qrResult,
+					processingTime,
+				}
+			}
+
+			// qr not found, trying ocr
+			const textResult = await this.recognizeText(imageBuffer, imageId)
 			const processingTime = Date.now() - startTime
 
 			await this.recognitionsRepo.update(recognitionId, {
 				status: 'completed',
-				resultType: 'qr',
-				qrData: qrResult.data,
-				qrFormat: qrResult.format,
-				qrLocation: qrResult.location,
+				resultType: 'text',
+				rawText: textResult.raw,
+				confidence: textResult.confidence,
+				engine: textResult.engine,
+				aligned: textResult.aligned,
 				processingTime,
 				completedAt: new Date(),
 			})
 
-			this.logger.info('qr code extracted', {
+			this.logger.info('text recognized', {
 				recognitionId,
-				format: qrResult.format,
+				engine: textResult.engine,
+				confidence: textResult.confidence,
+				aligned: textResult.aligned,
 				processingTime,
 			})
 
 			return {
-				resultType: 'qr',
-				qr: qrResult,
+				resultType: 'text',
+				text: textResult,
 				processingTime,
 			}
-		}
+		} catch (error) {
+			await this.recognitionsRepo.update(recognitionId, {
+				status: 'failed',
+				error: (error as Error).message,
+				completedAt: new Date(),
+			})
 
-		// no qr found, try ocr
-		const textResult = await this.recognizeText(imageBuffer, imageId)
-		const processingTime = Date.now() - startTime
-
-		await this.recognitionsRepo.update(recognitionId, {
-			status: 'completed',
-			resultType: 'text',
-			rawText: textResult.raw,
-			confidence: textResult.confidence,
-			engine: textResult.engine,
-			alignerUsed: textResult.aligned,
-			processingTime,
-			completedAt: new Date(),
-		})
-
-		this.logger.info('text recognized', {
-			recognitionId,
-			engine: textResult.engine,
-			confidence: textResult.confidence,
-			alignerUsed: textResult.aligned,
-			processingTime,
-		})
-
-		return {
-			resultType: 'text',
-			text: textResult,
-			processingTime,
+			throw error
 		}
 	}
 
@@ -127,14 +134,12 @@ export class RecognitionProcessor {
 			throw new Error('image not found')
 		}
 
-		// try cache first
 		const cacheKey = `ocr:image:${imageId}`
 		const cached = await this.cache.getBuffer(cacheKey)
 		if (cached) {
 			return cached
 		}
 
-		// load from storage
 		const key = image.originalUrl.replace('minio://', '').split('/').slice(1).join('/')
 		return await this.storage.getObject(key)
 	}
@@ -150,7 +155,6 @@ export class RecognitionProcessor {
 
 			if (!code) return null
 
-			// determine format
 			let format: 'fiscal' | 'url' | 'unknown' = 'unknown'
 			if (code.data.includes('fn=') || code.data.startsWith('t=')) {
 				format = 'fiscal'
@@ -170,102 +174,78 @@ export class RecognitionProcessor {
 	}
 
 	private async recognizeText(buffer: Buffer, imageId: string): Promise<ProcessorResult> {
-		// attempt 1: tesseract
-		let result: any = await this.callTesseract(buffer)
+		// try 1: tesseract
+		try {
+			const result = await this.engines.tesseract.recognize(buffer)
 
-		if (result.confidence >= this.config.confidenceThresholdHigh) {
-			return { ...result, alignerUsed: false }
+			if (result.confidence >= this.config.confidenceThresholdHigh) {
+				this.logger.info('tesseract succeeded with high confidence', {
+					confidence: result.confidence,
+				})
+				return { ...result, raw: result.text, engine: 'tesseract', aligned: false }
+			}
+
+			this.logger.debug('tesseract confidence too low', {
+				confidence: result.confidence,
+				threshold: this.config.confidenceThresholdHigh,
+			})
+		} catch (error) {
+			this.logger.warn('tesseract failed, will try aligner + tesseract', { error })
 		}
 
-		this.logger.debug('tesseract confidence low, trying aligner', {
-			confidence: result.confidence,
-		})
+		// try 2: aligner + tesseract
+		try {
+			const alignedBuffer = await this.engines.aligner.align(buffer)
 
-		// attempt 2: aligner + tesseract
-		const alignedBuffer = await this.callAligner(buffer)
+			const alignedKey = `${nanoid()}-aligned.jpg`
+			await this.storage.putObject(alignedKey, alignedBuffer, 'image/jpeg')
 
-		// save aligned image to storage
-		const alignedKey = `${nanoid()}-aligned.jpg`
-		await this.storage.putObject(alignedKey, alignedBuffer, 'image/jpeg')
+			await this.imagesRepo.update(imageId, {
+				processedUrl: `minio://${alignedKey}`,
+			})
 
-		// update image record with processed url
-		await this.imagesRepo.update(imageId, {
-			processedUrl: `minio://${alignedKey}`,
-		})
+			const result = await this.engines.tesseract.recognize(alignedBuffer)
 
-		result = await this.callTesseract(alignedBuffer)
+			if (result.confidence >= this.config.confidenceThresholdLow) {
+				this.logger.info('tesseract + aligner succeeded', {
+					confidence: result.confidence,
+				})
+				return { ...result, raw: result.text, engine: 'tesseract', aligned: true }
+			}
 
-		if (result.confidence >= this.config.confidenceThresholdLow) {
-			return { ...result, aligned: true }
+			this.logger.debug('tesseract + aligner confidence still low', {
+				confidence: result.confidence,
+				threshold: this.config.confidenceThresholdLow,
+			})
+		} catch (error) {
+			this.logger.warn('aligner + tesseract failed, will try paddleocr', { error })
 		}
 
-		this.logger.debug('tesseract+aligner confidence low, trying paddleocr', {
-			confidence: result.confidence,
-		})
+		// try 3: paddleocr as last resort
+		try {
+			const result = await this.engines.paddleocr.recognize(buffer)
 
-		// attempt 3: paddleocr
-		result = await this.callPaddleOCR(buffer)
+			this.logger.info('paddleocr succeeded as fallback', {
+				confidence: result.confidence,
+			})
 
-		return { ...result, aligned: false }
+			return { ...result, raw: result.text, engine: 'paddleocr', aligned: false }
+		} catch (error) {
+			this.logger.error('all ocr engines failed', { error })
+			throw new Error('all ocr engines unavailable, unable to recognize')
+		}
 	}
 
-	private async callTesseract(buffer: Buffer): Promise<{ raw: string; confidence: number; engine: 'tesseract' }> {
-		const formData = new FormData()
-		formData.append('image', new Blob([buffer]))
-
-		const response = await fetch(`${this.config.tesseractUrl}/recognize`, {
-			method: 'POST',
-			body: formData,
+	async markAsFailed(recognitionId: string, errorMessage: string): Promise<void> {
+		await this.recognitionsRepo.update(recognitionId, {
+			status: 'failed',
+			error: errorMessage,
+			completedAt: new Date(),
 		})
 
-		if (!response.ok) {
-			throw new Error(`tesseract error: ${response.status}`)
-		}
-
-		const data = (await response.json()) as any
-
-		return {
-			raw: data.text,
-			confidence: data.confidence,
-			engine: 'tesseract',
-		}
-	}
-
-	private async callAligner(buffer: Buffer): Promise<Buffer> {
-		const formData = new FormData()
-		formData.append('image', new Blob([buffer]))
-
-		const response = await fetch(`${this.config.alignerUrl}/align`, {
-			method: 'POST',
-			body: formData,
+		this.logger.info('recognition marked as failed', {
+			recognitionId,
+			error: errorMessage,
 		})
-
-		if (!response.ok) {
-			throw new Error(`aligner error: ${response.status}`)
-		}
-
-		return Buffer.from(await response.arrayBuffer())
-	}
-
-	private async callPaddleOCR(buffer: Buffer): Promise<{ raw: string; confidence: number; engine: 'paddleocr' }> {
-		const formData = new FormData()
-		formData.append('image', new Blob([buffer]))
-
-		const response = await fetch(`${this.config.paddleocrUrl}/recognize`, {
-			method: 'POST',
-			body: formData,
-		})
-
-		if (!response.ok) {
-			throw new Error(`paddleocr error: ${response.status}`)
-		}
-
-		const data = (await response.json()) as any
-
-		return {
-			raw: data!.text,
-			confidence: data!.confidence,
-			engine: 'paddleocr',
-		}
 	}
 }

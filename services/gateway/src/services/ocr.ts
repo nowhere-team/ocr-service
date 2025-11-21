@@ -2,6 +2,7 @@ import { nanoid } from 'nanoid'
 
 import type { Cache } from '@/platform/cache'
 import type { Logger } from '@/platform/logger'
+import type { Queue } from '@/platform/queue'
 import type { Storage } from '@/platform/storage'
 import type { ImagesRepository } from '@/repositories/images'
 import type { RecognitionsRepository } from '@/repositories/recognitions'
@@ -18,6 +19,7 @@ export class OcrService {
 		private recognitionsRepo: RecognitionsRepository,
 		private storage: Storage,
 		private cache: Cache,
+		private queue: Queue,
 		private logger: Logger,
 	) {}
 
@@ -67,6 +69,13 @@ export class OcrService {
 		const recognition = await this.recognitionsRepo.create({
 			imageId: image.id,
 			status: 'queued',
+		})
+
+		await this.queue.instance.add('recognition', {
+			imageId: image.id,
+			recognitionId: recognition.id,
+			sourceService: metadata?.sourceService,
+			sourceReference: metadata?.sourceReference,
 		})
 
 		this.logger.info('image uploaded', {

@@ -64,6 +64,8 @@ export async function createWorker(
 					error,
 				})
 
+				await services.processor.markAsFailed(job.data.recognitionId, (error as Error).message || 'unknown error')
+
 				// publish failed event
 				await eventBus.publish('ocr:events', 'ocr.failed', {
 					imageId: job.data.imageId,
@@ -77,7 +79,7 @@ export async function createWorker(
 			}
 		},
 		{
-			connection: await queue.client,
+			connection: await queue.instance.client,
 			concurrency,
 			limiter: {
 				max: 10,

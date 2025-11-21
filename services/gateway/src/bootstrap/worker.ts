@@ -11,6 +11,7 @@ import { createDatabase } from '@/platform/database'
 import { createEventBus, type EventBus } from '@/platform/events'
 import type { Logger } from '@/platform/logger'
 import { createLogger } from '@/platform/logger'
+import { createOCREngines, type OCREngines } from '@/platform/ocr-engines'
 import { closeQueue, createQueue, type Queue } from '@/platform/queue'
 import type { Storage } from '@/platform/storage'
 import { createStorage } from '@/platform/storage'
@@ -26,6 +27,7 @@ export interface WorkerApp {
 	storage: Storage
 	queue: Queue
 	eventBus: EventBus
+	engines: OCREngines
 	services: Services
 	worker: Worker
 }
@@ -60,19 +62,18 @@ export async function startWorker(): Promise<WorkerApp> {
 	const eventBus = await createEventBus(logger, { url: config.REDIS_URL })
 	logger.info('event bus initialized')
 
-	const services = createServices(
-		database,
-		cache,
-		storage,
-		{
-			tesseractUrl: config.TESSERACT_URL,
-			paddleocrUrl: config.PADDLEOCR_URL,
-			alignerUrl: config.ALIGNER_URL,
-			confidenceThresholdHigh: config.CONFIDENCE_THRESHOLD_HIGH,
-			confidenceThresholdLow: config.CONFIDENCE_THRESHOLD_LOW,
-		},
-		logger,
-	)
+	const engines = createOCREngines(logger, {
+		tesseractUrl: config.TESSERACT_URL,
+		paddleocrUrl: config.PADDLEOCR_URL,
+		alignerUrl: config.ALIGNER_URL,
+		timeout: config.OCR_ENGINE_TIMEOUT,
+	})
+	logger.info('ocr engines initialized')
+
+	const services = createServices(database, cache, storage, engines, queue, logger, {
+		confidenceThresholdHigh: config.CONFIDENCE_THRESHOLD_HIGH,
+		confidenceThresholdLow: config.CONFIDENCE_THRESHOLD_LOW,
+	})
 	logger.info('services initialized')
 
 	const worker = await createWorker(queue, eventBus, services, logger, config.WORKER_CONCURRENCY)
@@ -80,7 +81,7 @@ export async function startWorker(): Promise<WorkerApp> {
 
 	logger.info('ocr worker is ready, waiting for jobs...')
 
-	return { config, logger, database, cache, storage, queue, eventBus, services, worker }
+	return { config, logger, database, cache, storage, queue, eventBus, engines, services, worker }
 }
 
 export async function stopWorker(app: WorkerApp) {

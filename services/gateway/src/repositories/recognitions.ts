@@ -16,7 +16,7 @@ export interface UpdateRecognitionDto {
 	rawText?: string
 	confidence?: number
 	engine?: 'tesseract' | 'paddleocr'
-	alignerUsed?: boolean
+	aligned?: boolean
 	qrData?: string
 	qrFormat?: 'fiscal' | 'url' | 'unknown'
 	qrLocation?: { x: number; y: number; width: number; height: number }

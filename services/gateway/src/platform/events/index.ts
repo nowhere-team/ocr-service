@@ -18,8 +18,6 @@ export async function createEventBus(logger: Logger, config: { url: string }): P
 		enableReadyCheck: false,
 	})
 
-	await Promise.all([redisSubscriber.connect(), redisPublisher.connect()])
-
 	logger.info('redis pub/sub clients connected')
 
 	return new EventBus(

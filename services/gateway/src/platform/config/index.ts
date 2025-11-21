@@ -11,16 +11,17 @@ const schema = z.object({
 
 	REDIS_URL: z.url().nonempty().default('redis://localhost:6379'),
 
-	MINIO_ENDPOINT: z.url().nonempty().default('localhost'),
+	MINIO_ENDPOINT: z.string().nonempty().default('localhost'),
 	MINIO_PORT: z.coerce.number().min(1).max(65535).default(9000),
 	MINIO_ACCESS_KEY: z.string().nonempty().default('minioadmin'),
 	MINIO_SECRET_KEY: z.string().nonempty().default('minioadmin'),
-	MINIO_USE_SSL: z.boolean().default(true),
+	MINIO_USE_SSL: z.enum(['true', 'false']).transform(val => val === 'true'),
 	MINIO_BUCKET: z.string().nonempty().default('images'),
 
 	ALIGNER_URL: z.url().nonempty().default('http://aligner:8000'),
 	PADDLEOCR_URL: z.url().nonempty().default('http://paddleocr:8001'),
 	TESSERACT_URL: z.url().nonempty().default('http://tesseract:8002'),
+	OCR_ENGINE_TIMEOUT: z.coerce.number().default(30000), // 30 seconds
 
 	CONFIDENCE_THRESHOLD_HIGH: z.coerce.number().default(0.7),
 	CONFIDENCE_THRESHOLD_LOW: z.coerce.number().default(0.6),

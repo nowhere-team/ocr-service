@@ -10,6 +10,7 @@ import { createDatabase } from '@/platform/database'
 import { createEventBus, type EventBus } from '@/platform/events'
 import type { Logger } from '@/platform/logger'
 import { createLogger } from '@/platform/logger'
+import { createOCREngines, type OCREngines } from '@/platform/ocr-engines'
 import { closeQueue, createQueue, type Queue } from '@/platform/queue'
 import type { Storage } from '@/platform/storage'
 import { createStorage } from '@/platform/storage'
@@ -24,6 +25,7 @@ export interface GatewayApp {
 	storage: Storage
 	queue: Queue
 	eventBus: EventBus
+	engines: OCREngines
 	services: Services
 	server: Server
 }
@@ -58,19 +60,18 @@ export async function startGateway(): Promise<GatewayApp> {
 	const eventBus = await createEventBus(logger, { url: config.REDIS_URL })
 	logger.info('event bus initialized')
 
-	const services = createServices(
-		database,
-		cache,
-		storage,
-		{
-			tesseractUrl: config.TESSERACT_URL,
-			paddleocrUrl: config.PADDLEOCR_URL,
-			alignerUrl: config.ALIGNER_URL,
-			confidenceThresholdHigh: config.CONFIDENCE_THRESHOLD_HIGH,
-			confidenceThresholdLow: config.CONFIDENCE_THRESHOLD_LOW,
-		},
-		logger,
-	)
+	const engines = createOCREngines(logger, {
+		tesseractUrl: config.TESSERACT_URL,
+		paddleocrUrl: config.PADDLEOCR_URL,
+		alignerUrl: config.ALIGNER_URL,
+		timeout: config.OCR_ENGINE_TIMEOUT,
+	})
+	logger.info('ocr engines initialized')
+
+	const services = createServices(database, cache, storage, engines, queue, logger, {
+		confidenceThresholdHigh: config.CONFIDENCE_THRESHOLD_HIGH,
+		confidenceThresholdLow: config.CONFIDENCE_THRESHOLD_LOW,
+	})
 	logger.info('services initialized')
 
 	// subscribe to queue events to publish to eventbus
@@ -106,7 +107,7 @@ export async function startGateway(): Promise<GatewayApp> {
 
 	logger.info('ocr gateway is ready')
 
-	return { config, logger, database, cache, storage, queue, eventBus, services, server }
+	return { config, logger, database, cache, storage, queue, engines, eventBus, services, server }
 }
 
 export async function stopGateway(app: GatewayApp) {
