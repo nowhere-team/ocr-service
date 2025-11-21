@@ -12,6 +12,7 @@ export interface RecognitionJob {
 	recognitionId: string
 	sourceService?: string
 	sourceReference?: string
+    acceptedQrFormats?: Array<'fiscal' | 'url' | 'unknown'>
 }
 
 let redis: Redis | null = null

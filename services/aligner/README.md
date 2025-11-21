@@ -1,1 +1,0 @@
-# receipt aligner (java)
