@@ -1,0 +1,16 @@
+{
+	"useTabs": true,
+	"printWidth": 120,
+	"semi": false,
+	"singleQuote": true,
+	"endOfLine": "lf",
+	"arrowParens": "avoid",
+	"overrides": [
+		{
+			"files": ["**/*schema*.ts"],
+			"options": {
+				"printWidth": 150
+			}
+		}
+	]
+}

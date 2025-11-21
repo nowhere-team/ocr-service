@@ -1,0 +1,43 @@
+{
+  "name": "@ocr-service/gateway",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target=bun",
+    "start": "bun src/index.ts",
+    "format": "prettier --write .",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/bun": "latest",
+    "drizzle-kit": "^0.31.7",
+    "eslint": "^9.39.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.4",
+    "eslint-plugin-simple-import-sort": "^12.1.1",
+    "globals": "^16.5.0",
+    "prettier": "^3.6.2",
+    "typescript-eslint": "^8.47.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.7.5",
+    "@scalar/hono-api-reference": "^0.9.25",
+    "drizzle-orm": "^0.44.7",
+    "hono": "^4.10.6",
+    "ky": "^1.14.0",
+    "pino": "^10.1.0",
+    "pino-pretty": "^13.1.2",
+    "zod": "^4.1.12"
+  }
+}
