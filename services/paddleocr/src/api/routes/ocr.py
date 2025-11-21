@@ -25,6 +25,7 @@ tracer = get_tracer(__name__)
 router = APIRouter(prefix="/api/v1", tags=["ocr"])
 
 
+# noinspection PyTypeHints
 @router.post("/recognize", response_model=RecognitionResponse)
 async def recognize_text(
     file: UploadFile = File(...),
@@ -58,13 +59,17 @@ async def recognize_text(
         # parse image
         try:
             image = Image.open(io.BytesIO(contents))
+
+            # convert to rgb if needed
+            if image.mode != "RGB":
+                logger.debug("converting image to rgb", original_mode=image.mode)
+                image = image.convert("RGB")
+
             image_array = np.array(image)
         except Exception as e:
             logger.error("failed to parse image", error=str(e))
             record_error("image_parse_error")
-            raise HTTPException(
-                status_code=400, detail=f"invalid image format: {str(e)}"
-            ) from None  # подавляем внутренний traceback PIL
+            raise HTTPException(status_code=400, detail=f"invalid image format: {str(e)}") from None
 
         # run ocr recognition
         with tracer.start_as_current_span("api.recognize") as span:
@@ -82,13 +87,13 @@ async def recognize_text(
                 record_error("timeout")
                 raise HTTPException(
                     status_code=504, detail="processing timeout"
-                ) from None  # timeout не нужен для пользователя
+                ) from None  # no need timeout
             except Exception as e:
                 logger.error("ocr processing failed", error=str(e))
                 record_error("ocr_error")
                 raise HTTPException(
                     status_code=500, detail=f"ocr processing failed: {str(e)}"
-                ) from e  # здесь оставляем traceback для debugging
+                ) from e
 
             # parse paddleocr results
             blocks = []
