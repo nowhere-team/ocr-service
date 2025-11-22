@@ -8,6 +8,7 @@ import { createRepositories } from '@/repositories'
 
 import { OcrService } from './ocr'
 import { type ProcessorConfig, RecognitionProcessor } from './processor.ts'
+import {EventBus} from "@/platform/events";
 
 export interface Services {
 	ocr: OcrService
@@ -20,6 +21,7 @@ export function createServices(
 	storage: Storage,
 	engines: OCREngines,
 	queue: Queue,
+    eventBus: EventBus,
 	logger: Logger,
 	processorConfig: ProcessorConfig,
 ): Services {
@@ -33,6 +35,7 @@ export function createServices(
 		storage,
 		cache,
 		engines,
+        eventBus,
 		processorConfig,
 		logger.named('service/processor'),
 	)

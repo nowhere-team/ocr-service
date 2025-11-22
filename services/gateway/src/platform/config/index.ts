@@ -30,6 +30,8 @@ const schema = z.object({
 
 	LOG_LEVEL: z.enum(LOG_LEVELS).default('info'),
 	LOG_FORMAT: z.enum(LOG_FORMATS).default('json'),
+
+    DEBUG_MODE:  z.enum(['true', 'false']).transform(val => val === 'true')
 })
 
 export function createConfig(env: Env) {

@@ -18,6 +18,11 @@ class AlignmentConfig(BaseModel):
         description="aggressive preprocessing mode (sharp edges, may lose details)",
     )
 
+    debug_mode: bool = Field(
+        default=False, description="save intermediate images and publish debug events"
+    )
+    recognition_id: str = Field(default="", description="recognition id for debug tracking")
+
     @classmethod
     def default(cls) -> "AlignmentConfig":
         """default config - balanced mode"""
@@ -25,6 +30,7 @@ class AlignmentConfig(BaseModel):
             simplify_percent=2.0,
             apply_ocr_preprocessing=False,
             aggressive=False,
+            debug_mode=False,
         )
 
     @classmethod
@@ -34,6 +40,7 @@ class AlignmentConfig(BaseModel):
             simplify_percent=1.5,
             apply_ocr_preprocessing=True,
             aggressive=True,
+            debug_mode=False,
         )
 
     @classmethod
@@ -43,4 +50,5 @@ class AlignmentConfig(BaseModel):
             simplify_percent=3.0,
             apply_ocr_preprocessing=True,
             aggressive=False,
+            debug_mode=False,
         )

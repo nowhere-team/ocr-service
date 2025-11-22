@@ -31,12 +31,30 @@ export interface EventMap {
 			location?: { x: number; y: number; width: number; height: number }
 		}
 		processingTime: number
-	}
+	},
+    'ocr.debug.step': {
+        recognitionId: string
+        imageId: string
+        step: string
+        stepNumber: number
+        imageKey: string
+        description: string
+        metadata?: Record<string, any>
+    },
 	'ocr.failed': {
 		imageId: string
 		recognitionId: string
 		sourceService?: string
 		sourceReference?: string
 		error: string
-	}
+	},
+    'aligner.debug.step': {
+        recognitionId: string
+        imageId: string
+        step: string
+        stepNumber: number
+        imageKey: string
+        description: string
+        metadata?: Record<string, any>
+    }
 }

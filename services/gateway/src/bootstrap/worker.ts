@@ -70,10 +70,11 @@ export async function startWorker(): Promise<WorkerApp> {
 	})
 	logger.info('ocr engines initialized')
 
-	const services = createServices(database, cache, storage, engines, queue, logger, {
-		confidenceThresholdHigh: config.CONFIDENCE_THRESHOLD_HIGH,
-		confidenceThresholdLow: config.CONFIDENCE_THRESHOLD_LOW,
-	})
+    const services = createServices(database, cache, storage, engines, queue, eventBus, logger, {
+        confidenceThresholdHigh: config.CONFIDENCE_THRESHOLD_HIGH,
+        confidenceThresholdLow: config.CONFIDENCE_THRESHOLD_LOW,
+        debugMode: config.DEBUG_MODE
+    })
 	logger.info('services initialized')
 
 	const worker = await createWorker(queue, eventBus, services, logger, config.WORKER_CONCURRENCY)

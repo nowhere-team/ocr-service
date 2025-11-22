@@ -63,13 +63,17 @@ services:
       LOG_FORMAT: json
       ENABLE_TELEMETRY: "false"
       OTLP_ENDPOINT: http://jaeger:4317
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_USE_SSL: "false"
+      MINIO_BUCKET: images
     healthcheck:
       test: [ "CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
       interval: 10s
       timeout: 5s
       retries: 3
-  #    depends_on:
-  #      - jaeger
 
   tesseract:
     build:
@@ -90,8 +94,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-  #    depends_on:
-  #      - jaeger
 
   paddleocr:
     build:
@@ -113,8 +115,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-  #    depends_on:
-  #      - jaeger
 
   # === database migrations ===
 
@@ -161,6 +161,7 @@ services:
       CONFIDENCE_THRESHOLD_LOW: 0.6
       LOG_LEVEL: info
       LOG_FORMAT: json
+      DEBUG_MODE: "true"
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -202,6 +203,7 @@ services:
       WORKER_CONCURRENCY: 2
       LOG_LEVEL: info
       LOG_FORMAT: json
+      DEBUG_MODE: "true"
     depends_on:
       migrator:
         condition: service_completed_successfully
@@ -221,6 +223,28 @@ services:
     deploy:
       replicas: 1
 
+  visualizer:
+    build:
+      context: ./services/visualizer
+      dockerfile: Dockerfile
+    container_name: ocr-visualizer
+    ports:
+      - "8501:8501"
+    environment:
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_USE_SSL: "false"
+      MINIO_BUCKET: images
+      GATEWAY_URL: http://gateway:8080
+      PAGE_TITLE: "ocr-visualizer"
+      MAX_JOBS_DISPLAY: 50
+      AUTO_REFRESH_INTERVAL: 2
+    depends_on:
+      - redis
+      - minio
+    restart: unless-stopped
 
 volumes:
   postgres_data:

@@ -11,6 +11,9 @@ export interface AlignerOptions {
 	aggressive?: boolean
 	applyOcrPrep?: boolean
 	simplifyStep?: number
+    debugMode?: boolean
+    recognitionId?: string
+    imageId?: string
 }
 
 export class AlignerClient {
@@ -59,51 +62,61 @@ export class AlignerClient {
 		})
 	}
 
-	async align(buffer: Buffer, options?: AlignerOptions): Promise<Buffer> {
-		const startTime = Date.now()
+    async align(buffer: Buffer, options?: AlignerOptions): Promise<Buffer> {
+        const startTime = Date.now()
 
-		try {
-			const formData = new FormData()
-			formData.append('image', new Blob([buffer]))
+        try {
+            const formData = new FormData()
+            formData.append('image', new Blob([buffer]))
 
-			const searchParams = new URLSearchParams()
-			if (options?.aggressive !== undefined) {
-				searchParams.set('aggressive', String(options.aggressive))
-			}
-			if (options?.applyOcrPrep !== undefined) {
-				searchParams.set('apply_ocr_prep', String(options.applyOcrPrep))
-			}
-			if (options?.simplifyStep !== undefined) {
-				searchParams.set('simplify_step', String(options.simplifyStep))
-			}
+            const searchParams = new URLSearchParams()
+            if (options?.aggressive !== undefined) {
+                searchParams.set('aggressive', String(options.aggressive))
+            }
+            if (options?.applyOcrPrep !== undefined) {
+                searchParams.set('apply_ocr_prep', String(options.applyOcrPrep))
+            }
+            if (options?.simplifyStep !== undefined) {
+                searchParams.set('simplify_step', String(options.simplifyStep))
+            }
+            if (options?.debugMode !== undefined) {
+                searchParams.set('debug_mode', String(options.debugMode))
+            }
+            if (options?.recognitionId) {
+                searchParams.set('recognition_id', options.recognitionId)
+            }
+            if (options?.imageId) {
+                searchParams.set('image_id', options.imageId)
+            }
 
-			const response = await this.api.post('api/v1/align', {
-				body: formData,
-				searchParams,
-			})
+            const response = await this.api.post('api/v1/align', {
+                body: formData,
+                searchParams,
+            })
 
-			const alignedBuffer = Buffer.from(await response.arrayBuffer())
+            const alignedBuffer = Buffer.from(await response.arrayBuffer())
 
-			const duration = Date.now() - startTime
+            const duration = Date.now() - startTime
 
-			this.logger.info('image alignment completed', {
-				originalSize: buffer.length,
-				alignedSize: alignedBuffer.length,
-				aggressive: options?.aggressive ?? false,
-				applyOcrPrep: options?.applyOcrPrep ?? false,
-				duration,
-			})
+            this.logger.info('image alignment completed', {
+                originalSize: buffer.length,
+                alignedSize: alignedBuffer.length,
+                aggressive: options?.aggressive ?? false,
+                applyOcrPrep: options?.applyOcrPrep ?? false,
+                debugMode: options?.debugMode ?? false,
+                duration,
+            })
 
-			return alignedBuffer
-		} catch (error) {
-			const duration = Date.now() - startTime
+            return alignedBuffer
+        } catch (error) {
+            const duration = Date.now() - startTime
 
-			this.logger.error('image alignment failed', {
-				error,
-				duration,
-			})
+            this.logger.error('image alignment failed', {
+                error,
+                duration,
+            })
 
-			throw new Error(`aligner service unavailable: ${error instanceof Error ? error.message : 'unknown error'}`)
-		}
-	}
+            throw new Error(`aligner service unavailable: ${error instanceof Error ? error.message : 'unknown error'}`)
+        }
+    }
 }

@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     )
     processing_timeout: float = Field(default=30.0, description="processing timeout in seconds")
 
+    # redis for debug events
+    redis_url: str = Field(default="redis://localhost:6379", description="redis url for events")
+
+    # minio for debug images
+    minio_endpoint: str = Field(default="localhost:9000", description="minio endpoint")
+    minio_access_key: str = Field(default="minioadmin", description="minio access key")
+    minio_secret_key: str = Field(default="minioadmin", description="minio secret key")
+    minio_use_ssl: bool = Field(default=False, description="use ssl for minio")
+    minio_bucket: str = Field(default="images", description="minio bucket name")
+
     # logging
     log_level: str = Field(default="INFO", description="logging level")
     log_format: str = Field(default="json", description="log format: json or console")
