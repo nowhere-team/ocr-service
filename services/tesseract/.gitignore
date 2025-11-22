@@ -1,0 +1,11 @@
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.env
+.env.local

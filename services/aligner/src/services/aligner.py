@@ -18,8 +18,11 @@ class AlignerService:
 
     based on opencv contour detection and perspective transformation
     key features:
-    - adaptive flood fill for check mask detection
+    - adaptive multi-point seed detection for flood fill
     - CLAHE-based illumination equalization
+    - relative polygon simplification (scale-independent)
+    - dark receipt inversion support
+    - aspect ratio filtering for receipt detection
     - parametrized preprocessing for OCR (gentle/aggressive modes)
     """
 
@@ -46,24 +49,47 @@ class AlignerService:
             span.set_attribute("config.ocr_prep", config.apply_ocr_preprocessing)
 
             try:
+                # 0. detect if dark receipt and invert if needed
+                is_inverted, working_image = self._handle_dark_receipt(image_array)
+                if is_inverted:
+                    span.set_attribute("preprocessing.inverted", True)
+
                 # 1. preprocess - illumination equalization
-                preprocessed = self._preprocess(image_array)
+                preprocessed = self._preprocess(working_image)
 
-                # 2. find check mask via flood fill
-                mask = self._find_check_mask(preprocessed)
+                # 2. find optimal seed point for flood fill
+                seed_point = self._find_best_seed_point(preprocessed)
+                logger.debug("selected seed point", point=seed_point)
 
-                # 3. extract polygon contour
-                polygon = self._mask_to_polygon(mask, config.simplify_step)
+                # 3. find check mask via flood fill
+                mask = self._find_check_mask(preprocessed, seed_point)
 
-                # 4. get 4 corners using minAreaRect (most reliable method)
+                # validate mask coverage
+                mask_coverage = np.sum(mask > 0) / (mask.shape[0] * mask.shape[1])
+                span.set_attribute("mask.coverage", mask_coverage)
+
+                if mask_coverage > 0.85 or mask_coverage < 0.03:
+                    logger.warning(
+                        "suspicious mask coverage, may indicate detection failure",
+                        coverage=mask_coverage,
+                    )
+
+                # 4. extract polygon contour
+                polygon = self._mask_to_polygon(mask, config.simplify_percent)
+
+                # 5. filter contours by receipt aspect ratio
+                if len(polygon) > 0:
+                    polygon = self._ensure_receipt_shape(polygon, mask)
+
+                # 6. get 4 corners using minAreaRect
                 rect = cv2.minAreaRect(polygon)
                 corners = cv2.boxPoints(rect)
                 logger.debug("found corners using minAreaRect", rect=rect)
 
-                # 5. perspective warp (apply to original, not binarized)
+                # 7. perspective warp (apply to original, not inverted or binarized)
                 warped = self._warp_perspective(image_array, corners)
 
-                # 6. optional ocr preprocessing
+                # 8. optional ocr preprocessing
                 if config.apply_ocr_preprocessing:
                     warped = self._preprocess_for_ocr(warped, config.aggressive)
 
@@ -74,6 +100,7 @@ class AlignerService:
                     "alignment completed",
                     duration_ms=round(duration, 2),
                     output_shape=warped.shape,
+                    mask_coverage=round(mask_coverage, 3),
                 )
 
                 return warped
@@ -81,6 +108,25 @@ class AlignerService:
             except Exception as e:
                 logger.error("alignment failed", error=str(e), exc_info=True)
                 raise
+
+    @staticmethod
+    def _handle_dark_receipt(image: np.ndarray) -> tuple[bool, np.ndarray]:
+        """
+        detect and invert dark receipts (dark background, light text)
+
+        returns: (is_inverted, processed_image)
+        """
+        # calculate mean brightness
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        mean_brightness = np.mean(gray)
+
+        # dark receipt threshold
+        if mean_brightness < 100:
+            logger.debug("detected dark receipt, inverting", brightness=mean_brightness)
+            inverted = 255 - image
+            return True, inverted
+
+        return False, image
 
     @staticmethod
     def _preprocess(image: np.ndarray) -> np.ndarray:
@@ -108,16 +154,56 @@ class AlignerService:
 
         return result
 
-    def _find_check_mask(self, image: np.ndarray) -> np.ndarray:
+    def _find_best_seed_point(self, image: np.ndarray) -> tuple[int, int]:
         """
-        find check mask via flood fill from center
+        find optimal seed point for flood fill using grid search
+
+        selects point with highest color homogeneity (lowest variance)
+        this is more robust than fixed center point
+        """
+        h, w = image.shape[:2]
+
+        # candidate points: center + four quadrants
+        candidates = [
+            (w // 2, h // 2),  # center (highest priority)
+            (w // 3, h // 3),  # top-left quadrant
+            (2 * w // 3, h // 3),  # top-right quadrant
+            (w // 3, 2 * h // 3),  # bottom-left quadrant
+            (2 * w // 3, 2 * h // 3),  # bottom-right quadrant
+        ]
+
+        best_point = candidates[0]
+        max_homogeneity = 0.0
+
+        for point in candidates:
+            # sample colors around point
+            samples = self._get_samples(image, point, radius=5)
+
+            # calculate color variance (lower = more homogeneous)
+            variance = np.std(samples)
+            homogeneity = 1.0 / (1.0 + variance)
+
+            if homogeneity > max_homogeneity:
+                max_homogeneity = homogeneity
+                best_point = point
+
+        logger.debug(
+            "best seed point selected",
+            point=best_point,
+            homogeneity=round(max_homogeneity, 4),
+        )
+
+        return best_point
+
+    def _find_check_mask(self, image: np.ndarray, seed_point: tuple[int, int]) -> np.ndarray:
+        """
+        find check mask via flood fill from seed point
         adaptive tolerance based on local color variance
         """
         h, w = image.shape[:2]
-        center = (w // 2, h // 2)
 
-        # sample colors around center
-        samples = self._get_samples(image, center, radius=3)
+        # sample colors around seed point
+        samples = self._get_samples(image, seed_point, radius=3)
         mean_color = np.mean(samples, axis=0)
         tolerance = self._compute_auto_tolerance(samples, mean_color)
 
@@ -126,8 +212,8 @@ class AlignerService:
         # flood fill with adaptive mean color
         mask = np.zeros((h, w), dtype=np.uint8)
         visited = np.zeros((h, w), dtype=bool)
-        queue = deque([center])
-        visited[center[1], center[0]] = True
+        queue = deque([seed_point])
+        visited[seed_point[1], seed_point[0]] = True
 
         # 8-connectivity directions
         dirs = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)]
@@ -155,11 +241,11 @@ class AlignerService:
 
         return mask
 
-    def _mask_to_polygon(self, mask: np.ndarray, simplify_step: float) -> np.ndarray:
+    def _mask_to_polygon(self, mask: np.ndarray, simplify_percent: float) -> np.ndarray:
         """
         convert binary mask to polygon contour
 
-        applies morphological cleanup and contour simplification
+        simplify_percent: simplification as percentage of perimeter (scale-independent)
         """
         # additional morphological cleanup
         kernel_large = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
@@ -174,13 +260,23 @@ class AlignerService:
             logger.warning("no contours found")
             return np.array([])
 
-        # largest contour
-        best_contour = max(contours, key=cv2.contourArea)
+        # filter by aspect ratio
+        valid_contours = self._filter_receipt_contours(contours)
 
-        # polygon approximation with adaptive epsilon
+        # largest valid contour
+        best_contour = max(valid_contours, key=cv2.contourArea)
+
+        # polygon approximation with relative epsilon (percentage of perimeter)
         peri = cv2.arcLength(best_contour, True)
-        epsilon = simplify_step if simplify_step > 0 else 0.02 * peri
+        epsilon = (simplify_percent / 100.0) * peri
         approx = cv2.approxPolyDP(best_contour, epsilon, True)
+
+        logger.debug(
+            "polygon simplified",
+            original_points=len(best_contour),
+            simplified_points=len(approx),
+            epsilon=round(epsilon, 2),
+        )
 
         # filter sharp angles
         approx = self._filter_sharp_angles(approx, min_angle_deg=15)
@@ -193,6 +289,46 @@ class AlignerService:
             approx = box.astype(np.int32).reshape(-1, 1, 2)
 
         return approx.squeeze()
+
+    @staticmethod
+    def _filter_receipt_contours(contours: list) -> list:
+        """
+        filter contours by receipt-like aspect ratio
+
+        receipts are typically vertical rectangles with aspect ratio 1.2:1 to 5:1
+        """
+        filtered = []
+
+        for cnt in contours:
+            x, y, w, h = cv2.boundingRect(cnt)
+
+            if w == 0:
+                continue
+
+            aspect = h / w
+
+            # receipts are usually taller than wide
+            if 1.0 < aspect < 6.0:
+                filtered.append(cnt)
+
+        # fallback to all contours if filtering removes everything
+        return filtered if filtered else contours
+
+    def _ensure_receipt_shape(self, polygon: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        """
+        ensure polygon represents a receipt-like shape
+        if not, fall back to minAreaRect of the entire mask
+        """
+        if len(polygon) < 4:
+            logger.debug("polygon has less than 4 points, using mask bounding rect")
+            # find all non-zero points in mask
+            points = cv2.findNonZero(mask)
+            if points is not None:
+                rect = cv2.minAreaRect(points)
+                box = cv2.boxPoints(rect)
+                return box.astype(np.float32)
+
+        return polygon
 
     @staticmethod
     def _filter_sharp_angles(polygon: np.ndarray, min_angle_deg: float) -> np.ndarray:
@@ -212,32 +348,11 @@ class AlignerService:
             if min_angle_deg < angle < (360 - min_angle_deg):
                 filtered.append(pts[i])
 
+        if len(filtered) < 4:
+            # too aggressive filtering, return original
+            return polygon
+
         return np.array(filtered, dtype=np.float32)
-
-    @staticmethod
-    def _find_main_corners(polygon: np.ndarray, count: int) -> np.ndarray:
-        """
-        find main corners (sharpest angles) in polygon
-
-        returns points with the smallest angles (sharp turns = receipt corners)
-        """
-        pts = polygon if len(polygon.shape) == 2 else polygon.squeeze()
-
-        if len(pts) <= count:
-            return pts
-
-        angles = []
-        for i in range(len(pts)):
-            angle = AlignerService._compute_angle_at_point(pts, i)
-            if angle > 180:
-                angle = 360 - angle
-            angles.append((pts[i], angle))
-
-        # sort by angle (smallest = sharpest corners)
-        angles.sort(key=lambda x: x[1])
-        result = np.array([pt for pt, _ in angles[:count]], dtype=np.float32)
-
-        return result
 
     def _warp_perspective(self, image: np.ndarray, corners: np.ndarray) -> np.ndarray:
         """
@@ -290,7 +405,7 @@ class AlignerService:
         """
         order 4 corners as: top-left, top-right, bottom-right, bottom-left
 
-        assumes receipt is vertical (height > width) and detects orientation
+        improved detection: uses both geometric position and side length analysis
         """
         # sort by y coordinate to get top 2 and bottom 2 points
         sorted_by_y = pts[np.argsort(pts[:, 1])]
@@ -312,14 +427,22 @@ class AlignerService:
         width = np.linalg.norm(tr - tl)
         height = np.linalg.norm(bl - tl)
 
-        # if width > height, the receipt is horizontal - need to rotate 90 degrees
-        # by swapping the corners to make it vertical
-        if width > height * 1.2:  # allow some tolerance
-            logger.debug("receipt appears horizontal, rotating corner order")
+        # if width > height significantly, the receipt is horizontal
+        # rotate 90 degrees by swapping corners
+        if width > height * 1.3:  # increased threshold from 1.2 to 1.3 for stability
+            logger.debug(
+                "receipt appears horizontal, rotating corner order",
+                width=round(width, 1),
+                height=round(height, 1),
+            )
             # rotate corners 90 degrees clockwise: TL->TR, TR->BR, BR->BL, BL->TL
             return np.array([bl, tl, tr, br], dtype=np.float32)
         else:
-            logger.debug("receipt appears vertical, using standard order")
+            logger.debug(
+                "receipt appears vertical, using standard order",
+                width=round(width, 1),
+                height=round(height, 1),
+            )
             return np.array([tl, tr, br, bl], dtype=np.float32)
 
     @staticmethod

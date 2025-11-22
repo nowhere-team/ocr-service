@@ -24,6 +24,7 @@ tracer = get_tracer(__name__)
 router = APIRouter(prefix="/api/v1", tags=["aligner"])
 
 
+# noinspection PyTypeHints
 @router.post("/align")
 async def align_image(
     image: UploadFile = File(...),
@@ -34,8 +35,11 @@ async def align_image(
     apply_ocr_prep: bool = Query(
         default=False, description="apply ocr binarization after alignment"
     ),
-    simplify_step: float = Query(
-        default=50.0, ge=1.0, le=200.0, description="polygon simplification step"
+    simplify_percent: float = Query(
+        default=2.0,
+        ge=0.1,
+        le=10.0,
+        description="polygon simplification as % of perimeter (scale-independent)",
     ),
     aligner_deps: AlignerServiceDep = None,
 ):
@@ -48,7 +52,7 @@ async def align_image(
     parameters:
     - aggressive: use aggressive binarization (for high quality images)
     - apply_ocr_prep: apply ocr preprocessing after alignment
-    - simplify_step: polygon simplification epsilon (higher = simpler contour)
+    - simplify_percent: polygon simplification as percentage (scale-independent, default 2%)
     """
     aligner_service, _ = aligner_deps
     start_time = time.time()
@@ -90,7 +94,7 @@ async def align_image(
 
             try:
                 config = AlignmentConfig(
-                    simplify_step=simplify_step,
+                    simplify_percent=simplify_percent,
                     apply_ocr_preprocessing=apply_ocr_prep,
                     aggressive=aggressive,
                 )
