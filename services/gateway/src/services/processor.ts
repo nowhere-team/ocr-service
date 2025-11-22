@@ -1,5 +1,3 @@
-import { Jimp } from 'jimp'
-import jsQR from 'jsqr'
 import { nanoid } from 'nanoid'
 
 import type { Cache } from '@/platform/cache'
@@ -8,6 +6,7 @@ import type { OCREngines } from '@/platform/ocr-engines'
 import type { Storage } from '@/platform/storage'
 import type { ImagesRepository } from '@/repositories/images'
 import type { RecognitionsRepository } from '@/repositories/recognitions'
+import { readBarcodes, type ReaderOptions, type Position } from 'zxing-wasm'
 
 export interface ProcessorConfig {
 	confidenceThresholdHigh: number
@@ -48,102 +47,102 @@ export class RecognitionProcessor {
 		private logger: Logger,
 	) {}
 
-    async process(
-        imageId: string,
-        recognitionId: string,
-        acceptedQrFormats?: Array<'fiscal' | 'url' | 'unknown'>
-    ): Promise<RecognitionResult> {
-        const startTime = Date.now()
+	async process(
+		imageId: string,
+		recognitionId: string,
+		acceptedQrFormats?: Array<'fiscal' | 'url' | 'unknown'>,
+	): Promise<RecognitionResult> {
+		const startTime = Date.now()
 
-        this.logger.info('processing recognition', {
-            imageId,
-            recognitionId,
-            acceptedQrFormats
-        })
+		this.logger.info('processing recognition', {
+			imageId,
+			recognitionId,
+			acceptedQrFormats,
+		})
 
-        try {
-            await this.recognitionsRepo.update(recognitionId, {
-                status: 'processing',
-            })
+		try {
+			await this.recognitionsRepo.update(recognitionId, {
+				status: 'processing',
+			})
 
-            const imageBuffer = await this.getImageBuffer(imageId)
+			const imageBuffer = await this.getImageBuffer(imageId)
 
-            // finding qr
-            const qrResult = await this.tryExtractQr(imageBuffer)
-            if (qrResult) {
-                const shouldAcceptQr = !acceptedQrFormats || acceptedQrFormats.includes(qrResult.format)
+			// finding qr
+			const qrResult = await this.tryExtractQr(imageBuffer)
+			if (qrResult) {
+				const shouldAcceptQr = !acceptedQrFormats || acceptedQrFormats.includes(qrResult.format)
 
-                if (shouldAcceptQr) {
-                    const processingTime = Date.now() - startTime
+				if (shouldAcceptQr) {
+					const processingTime = Date.now() - startTime
 
-                    await this.recognitionsRepo.update(recognitionId, {
-                        status: 'completed',
-                        resultType: 'qr',
-                        qrData: qrResult.data,
-                        qrFormat: qrResult.format,
-                        qrLocation: qrResult.location,
-                        processingTime,
-                        completedAt: new Date(),
-                    })
+					await this.recognitionsRepo.update(recognitionId, {
+						status: 'completed',
+						resultType: 'qr',
+						qrData: qrResult.data,
+						qrFormat: qrResult.format,
+						qrLocation: qrResult.location,
+						processingTime,
+						completedAt: new Date(),
+					})
 
-                    this.logger.info('qr code extracted and accepted', {
-                        recognitionId,
-                        format: qrResult.format,
-                        processingTime,
-                    })
+					this.logger.info('qr code extracted and accepted', {
+						recognitionId,
+						format: qrResult.format,
+						processingTime,
+					})
 
-                    return {
-                        resultType: 'qr',
-                        qr: qrResult,
-                        processingTime,
-                    }
-                } else {
-                    this.logger.info('qr code found but not accepted, continuing to ocr', {
-                        recognitionId,
-                        foundFormat: qrResult.format,
-                        acceptedFormats: acceptedQrFormats,
-                    })
-                }
-            }
+					return {
+						resultType: 'qr',
+						qr: qrResult,
+						processingTime,
+					}
+				} else {
+					this.logger.info('qr code found but not accepted, continuing to ocr', {
+						recognitionId,
+						foundFormat: qrResult.format,
+						acceptedFormats: acceptedQrFormats,
+					})
+				}
+			}
 
-            // trying ocr
-            const textResult = await this.recognizeText(imageBuffer, imageId)
-            const processingTime = Date.now() - startTime
+			// trying ocr
+			const textResult = await this.recognizeText(imageBuffer, imageId)
+			const processingTime = Date.now() - startTime
 
-            await this.recognitionsRepo.update(recognitionId, {
-                status: 'completed',
-                resultType: 'text',
-                rawText: textResult.raw,
-                confidence: textResult.confidence,
-                engine: textResult.engine,
-                aligned: textResult.aligned,
-                processingTime,
-                completedAt: new Date(),
-            })
+			await this.recognitionsRepo.update(recognitionId, {
+				status: 'completed',
+				resultType: 'text',
+				rawText: textResult.raw,
+				confidence: textResult.confidence,
+				engine: textResult.engine,
+				aligned: textResult.aligned,
+				processingTime,
+				completedAt: new Date(),
+			})
 
-            this.logger.info('text recognized', {
-                recognitionId,
-                engine: textResult.engine,
-                confidence: textResult.confidence,
-                aligned: textResult.aligned,
-                processingTime,
-            })
+			this.logger.info('text recognized', {
+				recognitionId,
+				engine: textResult.engine,
+				confidence: textResult.confidence,
+				aligned: textResult.aligned,
+				processingTime,
+			})
 
-            return {
-                resultType: 'text',
-                text: textResult,
-                processingTime,
-            }
-        } catch (error) {
-            await this.recognitionsRepo.update(recognitionId, {
-                status: 'failed',
-                error: (error as Error).message,
-                completedAt: new Date(),
-            })
+			return {
+				resultType: 'text',
+				text: textResult,
+				processingTime,
+			}
+		} catch (error) {
+			await this.recognitionsRepo.update(recognitionId, {
+				status: 'failed',
+				error: (error as Error).message,
+				completedAt: new Date(),
+			})
 
-            throw error
-        }
-    }
+			throw error
+		}
+	}
 
 	private async getImageBuffer(imageId: string): Promise<Buffer> {
 		const image = await this.imagesRepo.findById(imageId)
@@ -165,24 +164,46 @@ export class RecognitionProcessor {
 		buffer: Buffer,
 	): Promise<{ data: string; format: 'fiscal' | 'url' | 'unknown'; location: any } | null> {
 		try {
-			const image = await Jimp.read(buffer)
-			const { width, height, data } = image.bitmap
-
-			const code = jsQR(new Uint8ClampedArray(data), width, height)
-
-			if (!code) return null
-
-			let format: 'fiscal' | 'url' | 'unknown' = 'unknown'
-			if (code.data.includes('fn=') || code.data.startsWith('t=')) {
-				format = 'fiscal'
-			} else if (code.data.startsWith('http')) {
-				format = 'url'
+			const readerOptions: ReaderOptions = {
+				formats: ['QRCode'],
+				tryHarder: true,
+				maxNumberOfSymbols: 255,
 			}
 
+			const results = await readBarcodes(buffer, readerOptions)
+
+			if (results.length === 0) {
+				this.logger.debug('no qr codes found')
+				return null
+			}
+
+			this.logger.debug('qr codes found', {
+				count: results.length,
+				formats: results.map(r => this.classifyQrFormat(r.text)),
+			})
+
+			for (const result of results) {
+				const format = this.classifyQrFormat(result.text)
+
+				if (format === 'fiscal') {
+					this.logger.info('fiscal qr code found')
+
+					return {
+						data: result.text,
+						format,
+						location: this.convertPosition(result.position),
+					}
+				}
+			}
+
+			this.logger.info('no fiscal qr found, using first available', {
+				selectedFormat: this.classifyQrFormat(results[0]!.text),
+			})
+
 			return {
-				data: code.data,
-				format,
-				location: code.location,
+				data: results[0]!.text,
+				format: this.classifyQrFormat(results[0]!.text),
+				location: this.convertPosition(results[0]!.position),
 			}
 		} catch (error) {
 			this.logger.debug('qr extraction failed', { error })
@@ -190,112 +211,101 @@ export class RecognitionProcessor {
 		}
 	}
 
-    private async recognizeText(buffer: Buffer, imageId: string): Promise<ProcessorResult> {
-        // try 1: clean tesseract
-        try {
-            const result = await this.engines.tesseract.recognize(buffer)
+	private classifyQrFormat(data: string): 'fiscal' | 'url' | 'unknown' {
+		if (
+			data.includes('fn=') ||
+			data.includes('&fn=') ||
+			(data.includes('t=') && data.includes('s=') && data.includes('fp='))
+		) {
+			return 'fiscal'
+		}
 
-            if (result.confidence >= this.config.confidenceThresholdHigh) {
-                this.logger.info('tesseract succeeded with high confidence', {
-                    confidence: result.confidence,
-                })
-                return { ...result, raw: result.text, engine: 'tesseract', aligned: false }
-            }
+		if (data.startsWith('http://') || data.startsWith('https://')) {
+			return 'url'
+		}
 
-            this.logger.debug('tesseract confidence too low', {
-                confidence: result.confidence,
-                threshold: this.config.confidenceThresholdHigh,
-            })
-        } catch (error) {
-            this.logger.warn('tesseract failed, will try aligner + tesseract', { error })
-        }
+		return 'unknown'
+	}
 
-        // try 2: aligner + tesseract
-        let alignedBuffer: Buffer | null = null
-        try {
-            alignedBuffer = await this.engines.aligner.align(buffer)
+	private convertPosition(position: Position) {
+		return {
+			x: Math.round(position.topLeft.x),
+			y: Math.round(position.topLeft.y),
+			width: Math.round(position.bottomRight.x - position.topLeft.x),
+			height: Math.round(position.bottomRight.y - position.topLeft.y),
+		}
+	}
 
-            const alignedKey = `${nanoid()}-aligned.jpg`
-            await this.storage.putObject(alignedKey, alignedBuffer, 'image/jpeg')
+	private async recognizeText(buffer: Buffer, imageId: string): Promise<ProcessorResult> {
+		let alignedBuffer: Buffer | null = null
 
-            await this.imagesRepo.update(imageId, {
-                processedUrl: `minio://${alignedKey}`,
-            })
+		try {
+			alignedBuffer = await this.engines.aligner.align(buffer, { applyOcrPrep: true })
 
-            const result = await this.engines.tesseract.recognize(alignedBuffer)
+			const alignedKey = `${nanoid()}-aligned.jpg`
+			const processedUrl = await this.storage.putObject(alignedKey, alignedBuffer, 'image/jpeg')
+			await this.imagesRepo.update(imageId, {
+				processedUrl: processedUrl,
+			})
 
-            if (result.confidence >= this.config.confidenceThresholdLow) {
-                this.logger.info('tesseract + aligner succeeded', {
-                    confidence: result.confidence,
-                })
-                return { ...result, raw: result.text, engine: 'tesseract', aligned: true }
-            }
+			this.logger.debug('image aligned and saved')
+		} catch (error) {
+			this.logger.warn('aligner failed', { error })
+		}
 
-            this.logger.debug('tesseract + aligner confidence still low', {
-                confidence: result.confidence,
-                threshold: this.config.confidenceThresholdLow,
-            })
-        } catch (error) {
-            this.logger.warn('aligner + tesseract failed, will try aligner + paddleocr', { error })
-        }
+		const attempts = []
 
-        // try 3: aligner + paddleocr
-        try {
-            const imageToRecognize = alignedBuffer || buffer
-            const result = await this.engines.paddleocr.recognize(imageToRecognize)
+		if (alignedBuffer) {
+			attempts.push(
+				{ name: 'tesseract+aligned', buffer: alignedBuffer, engine: this.engines.tesseract, aligned: true },
+				{ name: 'paddleocr+aligned', buffer: alignedBuffer, engine: this.engines.paddleocr, aligned: true },
+			)
+		}
 
-            if (alignedBuffer) {
-                this.logger.info('paddleocr + aligner succeeded', {
-                    confidence: result.confidence,
-                })
-                return { ...result, raw: result.text, engine: 'paddleocr', aligned: true }
-            } else {
-                // if aligner got down previously, try again for paddle
-                try {
-                    alignedBuffer = await this.engines.aligner.align(buffer)
+		attempts.push({ name: 'paddleocr+original', buffer: buffer, engine: this.engines.paddleocr, aligned: false })
 
-                    // if there's no saved version
-                    const image = await this.imagesRepo.findById(imageId)
-                    if (!image?.processedUrl) {
-                        const alignedKey = `${nanoid()}-aligned.jpg`
-                        await this.storage.putObject(alignedKey, alignedBuffer, 'image/jpeg')
-                        await this.imagesRepo.update(imageId, {
-                            processedUrl: `minio://${alignedKey}`,
-                        })
-                    }
+		let lastResult: ProcessorResult | null = null
 
-                    const alignedResult = await this.engines.paddleocr.recognize(alignedBuffer)
+		for (const attempt of attempts) {
+			try {
+				const result = await attempt.engine.recognize(attempt.buffer)
 
-                    this.logger.info('paddleocr + aligner succeeded (second attempt)', {
-                        confidence: alignedResult.confidence,
-                    })
-                    return { ...alignedResult, raw: alignedResult.text, engine: 'paddleocr', aligned: true }
-                } catch (alignError) {
-                    this.logger.debug('aligner failed for paddleocr, using original result', {
-                        error: alignError
-                    })
-                    // возвращаем результат с оригинальным изображением
-                    return { ...result, raw: result.text, engine: 'paddleocr', aligned: false }
-                }
-            }
-        } catch (error) {
-            this.logger.warn('aligner + paddleocr failed, will try pure paddleocr', { error })
-        }
+				lastResult = {
+					raw: result.text,
+					confidence: result.confidence,
+					engine: attempt.engine === this.engines.tesseract ? 'tesseract' : 'paddleocr',
+					aligned: attempt.aligned,
+				}
 
-        // try 4: clean paddleocr as last resort
-        try {
-            const result = await this.engines.paddleocr.recognize(buffer)
+				this.logger.debug(`${attempt.name} completed`, {
+					confidence: result.confidence,
+					threshold: this.config.confidenceThresholdLow,
+				})
 
-            this.logger.info('pure paddleocr succeeded as fallback', {
-                confidence: result.confidence,
-            })
+				// проверяем порог для ВСЕХ попыток
+				if (result.confidence >= this.config.confidenceThresholdLow) {
+					this.logger.info(`${attempt.name} succeeded`, {
+						confidence: result.confidence,
+					})
+					return lastResult
+				}
+			} catch (error) {
+				this.logger.warn(`${attempt.name} failed`, { error })
+			}
+		}
 
-            return { ...result, raw: result.text, engine: 'paddleocr', aligned: false }
-        } catch (error) {
-            this.logger.error('all ocr engines failed', { error })
-            throw new Error('all ocr engines unavailable, unable to recognize')
-        }
-    }
+		if (lastResult) {
+			this.logger.warn('all attempts returned low confidence, using last result', {
+				confidence: lastResult.confidence,
+				engine: lastResult.engine,
+				aligned: lastResult.aligned,
+				threshold: this.config.confidenceThresholdLow,
+			})
+			return lastResult
+		}
+
+		throw new Error('all ocr engines failed')
+	}
 
 	async markAsFailed(recognitionId: string, errorMessage: string): Promise<void> {
 		await this.recognitionsRepo.update(recognitionId, {

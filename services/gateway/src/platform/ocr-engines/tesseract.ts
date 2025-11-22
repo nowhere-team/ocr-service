@@ -58,20 +58,29 @@ export class TesseractClient {
 		})
 	}
 
-	async recognize(buffer: Buffer): Promise<TesseractResult> {
+	async recognize(buffer: Buffer, lang: string = 'rus+eng'): Promise<TesseractResult> {
 		const startTime = Date.now()
 
 		try {
 			const formData = new FormData()
 			formData.append('image', new Blob([buffer]))
 
-			const response = await this.api.post('recognize', { body: formData }).json<TesseractResult>()
+			const searchParams = new URLSearchParams()
+			searchParams.set('lang', lang)
+
+			const response = await this.api
+				.post('api/v1/recognize', {
+					body: formData,
+					searchParams,
+				})
+				.json<TesseractResult>()
 
 			const duration = Date.now() - startTime
 
 			this.logger.info('tesseract recognition completed', {
 				confidence: response.confidence,
 				textLength: response.text.length,
+				language: lang,
 				duration,
 			})
 

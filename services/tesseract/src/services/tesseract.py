@@ -112,6 +112,7 @@ class TesseractService:
 
                 # calculate average confidence
                 avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+                avg_confidence = avg_confidence / 100.0
 
                 duration = (time.time() - start_time) * 1000
                 span.set_attribute("processing.duration_ms", duration)
@@ -121,16 +122,15 @@ class TesseractService:
                 logger.info(
                     "recognition completed",
                     text_length=len(full_text),
-                    confidence=round(avg_confidence, 2),
+                    confidence=round(avg_confidence, 3),
                     duration_ms=round(duration, 2),
                     language=language,
                 )
 
                 return OCRResult(
                     text=full_text,
-                    confidence=avg_confidence,
+                    confidence=avg_confidence,  # 0.0-1.0
                 )
-
             except Exception as e:
                 logger.error("recognition failed", error=str(e), exc_info=True)
                 raise RuntimeError(f"tesseract recognition failed: {e}") from e

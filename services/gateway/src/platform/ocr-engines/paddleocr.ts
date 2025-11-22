@@ -63,9 +63,9 @@ export class PaddleOCRClient {
 
 		try {
 			const formData = new FormData()
-			formData.append('image', new Blob([buffer]))
+			formData.append('file', new Blob([buffer]))
 
-			const response = await this.api.post('recognize', { body: formData }).json<PaddleOCRResult>()
+			const response = await this.api.post('api/v1/recognize', { body: formData }).json<PaddleOCRResult>()
 
 			const duration = Date.now() - startTime
 

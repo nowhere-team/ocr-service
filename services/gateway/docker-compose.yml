@@ -1,58 +1,58 @@
 version: '3.8'
 
 services:
-#  ocr-gateway:
-#    build:
-#      context: .
-#      dockerfile: Dockerfile
-#    command: bun run start:gateway
-#    ports:
-#      - "3000:3000"
-#    environment:
-#      - NODE_ENV=production
-#      - PORT=3000
-#      - DATABASE_URL=postgresql://ocr:password@postgres:5432/ocr
-#      - REDIS_URL=redis://redis:6379
-#      - MINIO_ENDPOINT=minio
-#      - MINIO_PORT=9000
-#      - MINIO_ACCESS_KEY=minioadmin
-#      - MINIO_SECRET_KEY=minioadmin
-#      - MINIO_BUCKET=images
-#      - TESSERACT_URL=http://tesseract:8080
-#      - PADDLEOCR_URL=http://paddleocr:8000
-#      - ALIGNER_URL=http://aligner:8081
-#    depends_on:
-#      - postgres
-#      - redis
-#      - minio
-#    restart: unless-stopped
-#
-#  ocr-worker:
-#    build:
-#      context: .
-#      dockerfile: Dockerfile
-#    command: bun run start:worker
-#    environment:
-#      - NODE_ENV=production
-#      - DATABASE_URL=postgresql://ocr:password@postgres:5432/ocr
-#      - REDIS_URL=redis://redis:6379
-#      - MINIO_ENDPOINT=minio
-#      - MINIO_PORT=9000
-#      - MINIO_ACCESS_KEY=minioadmin
-#      - MINIO_SECRET_KEY=minioadmin
-#      - MINIO_BUCKET=images
-#      - TESSERACT_URL=http://tesseract:8080
-#      - PADDLEOCR_URL=http://paddleocr:8000
-#      - ALIGNER_URL=http://aligner:8081
-#      - WORKER_CONCURRENCY=1
-#    depends_on:
-#      - postgres
-#      - redis
-#      - minio
-#      - tesseract
-#      - paddleocr
-#      - aligner
-#    restart: unless-stopped
+  #  ocr-gateway:
+  #    build:
+  #      context: .
+  #      dockerfile: Dockerfile
+  #    command: bun run start:gateway
+  #    ports:
+  #      - "3000:3000"
+  #    environment:
+  #      - NODE_ENV=production
+  #      - PORT=3000
+  #      - DATABASE_URL=postgresql://ocr:password@postgres:5432/ocr
+  #      - REDIS_URL=redis://redis:6379
+  #      - MINIO_ENDPOINT=minio
+  #      - MINIO_PORT=9000
+  #      - MINIO_ACCESS_KEY=minioadmin
+  #      - MINIO_SECRET_KEY=minioadmin
+  #      - MINIO_BUCKET=images
+  #      - TESSERACT_URL=http://tesseract:8080
+  #      - PADDLEOCR_URL=http://paddleocr:8000
+  #      - ALIGNER_URL=http://aligner:8081
+  #    depends_on:
+  #      - postgres
+  #      - redis
+  #      - minio
+  #    restart: unless-stopped
+  #
+  #  ocr-worker:
+  #    build:
+  #      context: .
+  #      dockerfile: Dockerfile
+  #    command: bun run start:worker
+  #    environment:
+  #      - NODE_ENV=production
+  #      - DATABASE_URL=postgresql://ocr:password@postgres:5432/ocr
+  #      - REDIS_URL=redis://redis:6379
+  #      - MINIO_ENDPOINT=minio
+  #      - MINIO_PORT=9000
+  #      - MINIO_ACCESS_KEY=minioadmin
+  #      - MINIO_SECRET_KEY=minioadmin
+  #      - MINIO_BUCKET=images
+  #      - TESSERACT_URL=http://tesseract:8080
+  #      - PADDLEOCR_URL=http://paddleocr:8000
+  #      - ALIGNER_URL=http://aligner:8081
+  #      - WORKER_CONCURRENCY=1
+  #    depends_on:
+  #      - postgres
+  #      - redis
+  #      - minio
+  #      - tesseract
+  #      - paddleocr
+  #      - aligner
+  #    restart: unless-stopped
 
   postgres:
     image: postgres:18-alpine
@@ -63,7 +63,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - '5432:5432'
     restart: unless-stopped
 
   redis:
@@ -72,7 +72,7 @@ services:
     volumes:
       - redis_data:/data
     ports:
-      - "6379:6379"
+      - '6379:6379'
     restart: unless-stopped
 
   minio:
@@ -84,8 +84,8 @@ services:
     volumes:
       - minio_data:/data
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - '9000:9000'
+      - '9001:9001'
     restart: unless-stopped
 
   # placeholder для движков ocr (tesseract, paddleocr, aligner)

@@ -1,0 +1,232 @@
+services:
+  # === infrastructure ===
+
+  postgres:
+    image: postgres:alpine
+    container_name: ocr-postgres
+    environment:
+      POSTGRES_USER: ocr
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: ocr
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ocr"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:alpine
+    container_name: ocr-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  minio:
+    image: minio/minio:latest
+    container_name: ocr-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # === ocr engines ===
+
+  aligner:
+    build:
+      context: ./services/aligner
+      dockerfile: Dockerfile
+    container_name: ocr-aligner
+    ports:
+      - "8100:8000"
+    environment:
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      ENABLE_TELEMETRY: "false"
+      OTLP_ENDPOINT: http://jaeger:4317
+    healthcheck:
+      test: [ "CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+  #    depends_on:
+  #      - jaeger
+
+  tesseract:
+    build:
+      context: ./services/tesseract
+      dockerfile: Dockerfile
+    container_name: ocr-tesseract
+    ports:
+      - "8102:8000"
+    environment:
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      DEFAULT_LANG: rus+eng
+      ENABLE_TELEMETRY: "false"
+      OTLP_ENDPOINT: http://jaeger:4317
+    healthcheck:
+      test: [ "CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+  #    depends_on:
+  #      - jaeger
+
+  paddleocr:
+    build:
+      context: ./services/paddleocr
+      dockerfile: Dockerfile
+    container_name: ocr-paddleocr
+    ports:
+      - "8101:8000"
+    environment:
+      LOG_LEVEL: INFO
+      LOG_FORMAT: json
+      PADDLE_DEVICE: cpu
+      PADDLE_LANG: ru
+      ENABLE_TELEMETRY: "false"
+      OTLP_ENDPOINT: http://jaeger:4317
+    healthcheck:
+      test: [ "CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+  #    depends_on:
+  #      - jaeger
+
+  # === database migrations ===
+
+  migrator:
+    build:
+      context: ./services/gateway
+      dockerfile: Dockerfile
+      target: migrator
+    container_name: ocr-migrator
+    environment:
+      DATABASE_URL: postgresql://ocr:password@postgres:5432/ocr
+      LOG_LEVEL: info
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # === gateway & worker ===
+
+  gateway:
+    build:
+      context: ./services/gateway
+      dockerfile: Dockerfile
+      target: gateway
+    container_name: ocr-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      PORT: 8080
+      DATABASE_URL: postgresql://ocr:password@postgres:5432/ocr
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_USE_SSL: "false"
+      MINIO_BUCKET: images
+      ALIGNER_URL: http://aligner:8000
+      TESSERACT_URL: http://tesseract:8000
+      PADDLEOCR_URL: http://paddleocr:8000
+      OCR_ENGINE_TIMEOUT: 30000
+      CONFIDENCE_THRESHOLD_HIGH: 0.7
+      CONFIDENCE_THRESHOLD_LOW: 0.6
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      aligner:
+        condition: service_healthy
+      tesseract:
+        condition: service_healthy
+      paddleocr:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./services/gateway
+      dockerfile: Dockerfile
+      target: worker
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://ocr:password@postgres:5432/ocr
+      REDIS_URL: redis://redis:6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+      MINIO_USE_SSL: "false"
+      MINIO_BUCKET: images
+      ALIGNER_URL: http://aligner:8000
+      TESSERACT_URL: http://tesseract:8000
+      PADDLEOCR_URL: http://paddleocr:8000
+      OCR_ENGINE_TIMEOUT: 30000
+      CONFIDENCE_THRESHOLD_HIGH: 0.9
+      CONFIDENCE_THRESHOLD_LOW: 0.8
+      WORKER_CONCURRENCY: 2
+      LOG_LEVEL: info
+      LOG_FORMAT: json
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      aligner:
+        condition: service_healthy
+      tesseract:
+        condition: service_healthy
+      paddleocr:
+        condition: service_healthy
+    restart: unless-stopped
+    deploy:
+      replicas: 1
+
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
+
+networks:
+  default:
+    name: ocr-network
