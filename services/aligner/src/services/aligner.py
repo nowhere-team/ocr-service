@@ -1,4 +1,3 @@
-# services/aligner/src/services/aligner.py
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable, Sequence
@@ -9,6 +8,12 @@ import numpy as np
 from ..logger import get_logger
 from ..models import AlignmentConfig
 from ..observability.telemetry import get_tracer
+from .common import (
+    handle_dark_receipt,
+    order_corners,
+    preprocess_illumination,
+    warp_perspective,
+)
 from .debug_helper import DebugHelper
 
 logger = get_logger(__name__)
@@ -31,34 +36,26 @@ class AlignerService:
         config: AlignmentConfig,
         debug_callback: Callable[[str, int, np.ndarray, dict], Awaitable[None]] | None = None,
     ) -> np.ndarray:
-        """
-        align receipt image perspective
-
-        args:
-            image_array: input image as numpy array (BGR)
-            config: alignment configuration
-            debug_callback: optional async callback for debug visualization
-
-        returns:
-            aligned image as numpy array
-        """
         start_time = time.time()
         debug = DebugHelper(debug_callback, config.debug_mode)
 
         with tracer.start_as_current_span("aligner_service.align") as span:
             span.set_attribute("image.shape", str(image_array.shape))
             span.set_attribute("config.aggressive", config.aggressive)
-            span.set_attribute("config.ocr_prep", config.apply_ocr_preprocessing)
             span.set_attribute("config.debug_mode", config.debug_mode)
 
             try:
                 await debug.log(
                     "00_original",
                     image_array,
-                    {"description": "original uploaded image", "shape": str(image_array.shape)},
+                    {
+                        "description": "original uploaded image",
+                        "shape": str(image_array.shape),
+                        "method": "classic",
+                    },
                 )
 
-                is_inverted, working_image = self._handle_dark_receipt(image_array)
+                is_inverted, working_image = handle_dark_receipt(image_array)
                 span.set_attribute("preprocessing.inverted", is_inverted)
 
                 await debug.log(
@@ -69,14 +66,18 @@ class AlignerService:
                         if is_inverted
                         else "input without inversion",
                         "is_inverted": is_inverted,
+                        "method": "classic",
                     },
                 )
 
-                preprocessed = self._preprocess(working_image)
+                preprocessed = preprocess_illumination(working_image)
                 await debug.log(
                     "02_preprocessed",
                     preprocessed,
-                    {"description": "CLAHE illumination equalization applied"},
+                    {
+                        "description": "clahe illumination equalization applied",
+                        "method": "classic",
+                    },
                 )
 
                 seed_point = self._find_best_seed_point(preprocessed)
@@ -93,6 +94,7 @@ class AlignerService:
                             "description": f"optimal seed point at {seed_point}",
                             "seed_x": seed_point[0],
                             "seed_y": seed_point[1],
+                            "method": "classic",
                         },
                     )
 
@@ -112,6 +114,7 @@ class AlignerService:
                         {
                             "description": "flood fill mask before cleanup",
                             "coverage": mask_coverage,
+                            "method": "classic",
                         },
                     )
 
@@ -120,7 +123,10 @@ class AlignerService:
                     await debug.log(
                         "05_mask_closed",
                         cv2.cvtColor(clean, cv2.COLOR_GRAY2BGR),
-                        {"description": "after morphological CLOSE (15x15)"},
+                        {
+                            "description": "after morphological close (15x15)",
+                            "method": "classic",
+                        },
                     )
 
                     kernel_small = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
@@ -128,7 +134,10 @@ class AlignerService:
                     await debug.log(
                         "06_mask_opened",
                         cv2.cvtColor(clean, cv2.COLOR_GRAY2BGR),
-                        {"description": "after morphological OPEN (5x5)"},
+                        {
+                            "description": "after morphological open (5x5)",
+                            "method": "classic",
+                        },
                     )
 
                 polygon = self._mask_to_polygon(mask, config.simplify_percent)
@@ -138,9 +147,7 @@ class AlignerService:
                     if len(polygon) > 0:
                         cv2.polylines(contour_vis, [polygon.astype(np.int32)], True, (0, 255, 0), 3)
                         for i, pt in enumerate(polygon):
-                            # noinspection PyUnresolvedReferences
                             cv2.circle(contour_vis, tuple(pt.astype(int)), 8, (255, 0, 0), -1)
-                            # noinspection PyUnresolvedReferences
                             cv2.putText(
                                 contour_vis,
                                 str(i),
@@ -157,6 +164,7 @@ class AlignerService:
                             "description": f"detected polygon with {len(polygon)} points",
                             "polygon_points": len(polygon),
                             "simplify_percent": config.simplify_percent,
+                            "method": "classic",
                         },
                     )
 
@@ -171,11 +179,10 @@ class AlignerService:
                     corners_vis = image_array.copy()
                     cv2.polylines(corners_vis, [corners.astype(np.int32)], True, (0, 255, 255), 3)
                     for i, corner in enumerate(corners):
-                        # noinspection PyUnresolvedReferences
                         cv2.circle(corners_vis, tuple(corner.astype(int)), 12, (0, 0, 255), -1)
                         cv2.putText(
                             corners_vis,
-                            f"C{i}",
+                            f"c{i}",
                             (int(corner[0]) - 20, int(corner[1]) - 20),
                             cv2.FONT_HERSHEY_SIMPLEX,
                             0.8,
@@ -189,29 +196,21 @@ class AlignerService:
                             "description": "4 corners from minAreaRect",
                             "corners": corners.tolist(),
                             "rect_angle": float(rect[2]),
+                            "method": "classic",
                         },
                     )
 
-                warped = self._warp_perspective(image_array, corners)
+                corners = order_corners(corners)
+                warped = warp_perspective(image_array, corners)
                 await debug.log(
                     "09_warped",
                     warped,
                     {
                         "description": "perspective-corrected image",
                         "output_shape": str(warped.shape),
+                        "method": "classic",
                     },
                 )
-
-                if config.apply_ocr_preprocessing:
-                    warped = self._preprocess_for_ocr(warped, config.aggressive)
-                    await debug.log(
-                        "10_ocr_preprocessed",
-                        warped,
-                        {
-                            "description": f"OCR preprocessing ({'aggressive' if config.aggressive else 'gentle'})",
-                            "aggressive": config.aggressive,
-                        },
-                    )
 
                 duration = (time.time() - start_time) * 1000
                 span.set_attribute("processing.duration_ms", duration)
@@ -229,28 +228,6 @@ class AlignerService:
             except Exception as e:
                 logger.error("alignment failed", error=str(e), exc_info=True)
                 raise
-
-    @staticmethod
-    def _handle_dark_receipt(image: np.ndarray) -> tuple[bool, np.ndarray]:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        mean_brightness = np.mean(gray)
-
-        if mean_brightness < 100:
-            logger.debug("detected dark receipt, inverting", brightness=mean_brightness)
-            return True, 255 - image
-
-        return False, image
-
-    @staticmethod
-    def _preprocess(image: np.ndarray) -> np.ndarray:
-        blurred = cv2.GaussianBlur(image, (5, 5), 0)
-        lab = cv2.cvtColor(blurred, cv2.COLOR_BGR2LAB)
-        l_channel, a_channel, b_channel = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
-        l_channel = clahe.apply(l_channel)
-        lab = cv2.merge([l_channel, a_channel, b_channel])
-        result = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
-        return cv2.addWeighted(result, 1.2, np.zeros_like(result), 0, 0)
 
     def _find_best_seed_point(self, image: np.ndarray) -> tuple[int, int]:
         h, w = image.shape[:2]
@@ -393,90 +370,6 @@ class AlignerService:
             return polygon
 
         return np.array(filtered, dtype=np.float32)
-
-    def _warp_perspective(self, image: np.ndarray, corners: np.ndarray) -> np.ndarray:
-        ordered = self._order_corners(corners)
-
-        width_a = np.linalg.norm(ordered[1] - ordered[0])
-        width_b = np.linalg.norm(ordered[2] - ordered[3])
-        max_width = max(width_a, width_b)
-
-        height_a = np.linalg.norm(ordered[3] - ordered[0])
-        height_b = np.linalg.norm(ordered[2] - ordered[1])
-        max_height = max(height_a, height_b)
-
-        scale = 1.5
-        max_width = max(64, int(max_width * scale))
-        max_height = max(64, int(max_height * scale))
-
-        dst = np.array(
-            [
-                [0, 0],
-                [max_width - 1, 0],
-                [max_width - 1, max_height - 1],
-                [0, max_height - 1],
-            ],
-            dtype=np.float32,
-        )
-
-        matrix = cv2.getPerspectiveTransform(ordered, dst)
-        return cv2.warpPerspective(
-            image,
-            matrix,
-            (max_width, max_height),
-            flags=cv2.INTER_CUBIC,
-            borderMode=cv2.BORDER_REPLICATE,
-        )
-
-    @staticmethod
-    def _order_corners(pts: np.ndarray) -> np.ndarray:
-        sorted_by_y = pts[np.argsort(pts[:, 1])]
-        top_points = sorted_by_y[:2]
-        bottom_points = sorted_by_y[2:]
-
-        top_points = top_points[np.argsort(top_points[:, 0])]
-        tl, tr = top_points[0], top_points[1]
-
-        bottom_points = bottom_points[np.argsort(bottom_points[:, 0])]
-        bl, br = bottom_points[0], bottom_points[1]
-
-        width = np.linalg.norm(tr - tl)
-        height = np.linalg.norm(bl - tl)
-
-        if width > height * 1.3:
-            logger.debug(
-                "receipt horizontal, rotating corner order",
-                width=round(width, 1),
-                height=round(height, 1),
-            )
-            return np.array([bl, tl, tr, br], dtype=np.float32)
-        else:
-            logger.debug(
-                "receipt vertical, standard order", width=round(width, 1), height=round(height, 1)
-            )
-            return np.array([tl, tr, br, bl], dtype=np.float32)
-
-    @staticmethod
-    def _preprocess_for_ocr(image: np.ndarray, aggressive: bool) -> np.ndarray:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-
-        if aggressive:
-            thresh = cv2.adaptiveThreshold(
-                blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 10
-            )
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 1))
-            thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
-        else:
-            thresh = cv2.adaptiveThreshold(
-                blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 15, 5
-            )
-            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2, 2))
-            thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-
-        result = thresh.copy()
-        cv2.normalize(thresh, result, 0, 255, cv2.NORM_MINMAX)
-        return result
 
     @staticmethod
     def _get_samples(image: np.ndarray, center: tuple[int, int], radius: int) -> np.ndarray:

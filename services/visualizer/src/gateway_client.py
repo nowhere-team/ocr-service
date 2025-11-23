@@ -18,6 +18,7 @@ class GatewayClient:
         source_service: str | None = None,
         source_reference: str | None = None,
         accepted_qr_formats: list[str] | None = None,
+        alignment_mode: str | None = None,
     ) -> dict[str, Any] | None:
         """
         upload image for recognition
@@ -28,6 +29,7 @@ class GatewayClient:
             source_service: optional source service name
             source_reference: optional source reference
             accepted_qr_formats: optional list of accepted qr formats
+            alignment_mode: optional alignment mode (classic or neural)
 
         returns:
             response dict with imageId and recognitionId or none if failed
@@ -40,8 +42,10 @@ class GatewayClient:
                 data["sourceService"] = source_service
             if source_reference:
                 data["sourceReference"] = source_reference
-            if accepted_qr_formats:
+            if accepted_qr_formats is not None:
                 data["acceptedQrFormats"] = ",".join(accepted_qr_formats)
+            if alignment_mode:
+                data["alignmentMode"] = alignment_mode
 
             response = self.session.post(
                 f"{self.gateway_url}/api/v1/recognize",

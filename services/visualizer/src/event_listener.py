@@ -90,18 +90,20 @@ class EventListener:
                 job["processingStartedAt"] = datetime.now().isoformat()
 
             elif event == "ocr.debug.step" or event == "aligner.debug.step":
-                stage = {
-                    "step": data.get("step", "unknown"),
-                    "stepNumber": data.get("stepNumber", 0),
-                    "imageKey": data.get("imageKey", ""),
-                    "description": data.get("description", ""),
-                    "metadata": data.get("metadata", {}),
-                    "timestamp": data.get("timestamp", time.time()),
-                    "source": "aligner" if event == "aligner.debug.step" else "gateway",
-                }
-                job["stages"].append(stage)
-                # sort stages by step number
-                job["stages"].sort(key=lambda x: x["stepNumber"])
+                step = data.get("step", "unknown")
+                existing_steps = {s["step"] for s in job["stages"]}
+                if step not in existing_steps:
+                    stage = {
+                        "step": step,
+                        "stepNumber": data.get("stepNumber", 0),
+                        "imageKey": data.get("imageKey", ""),
+                        "description": data.get("description", ""),
+                        "metadata": data.get("metadata", {}),
+                        "timestamp": data.get("timestamp", time.time() * 1000),
+                        "source": "aligner" if event == "aligner.debug.step" else "gateway",
+                    }
+
+                    job["stages"].append(stage)
 
             elif event == "ocr.completed":
                 job["status"] = "completed"

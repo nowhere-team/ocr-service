@@ -17,9 +17,9 @@ def render_upload_form(gateway: GatewayClient) -> bool:
     """
     with st.form("upload_form", clear_on_submit=True, border=False):
         uploaded_file = st.file_uploader(
-            "Image",
+            "image",
             type=["jpg", "jpeg", "png", "webp"],
-            help="Supported: jpg, png, webp",
+            help="supported: jpg, png, webp",
             label_visibility="collapsed",
         )
 
@@ -27,38 +27,54 @@ def render_upload_form(gateway: GatewayClient) -> bool:
             st.image(
                 uploaded_file,
                 width=250,
-                caption=f"{uploaded_file.name} • {uploaded_file.size / 1024:.1f} KB",
+                caption=f"{uploaded_file.name} • {uploaded_file.size / 1024:.1f} kb",
             )
 
-        with st.expander("Options", expanded=False):
+        with st.expander("options", expanded=False):
+            st.caption("**alignment algorithm**")
+            alignment_col1, alignment_col2 = st.columns(2)
+
+            with alignment_col1:
+                use_classic = st.checkbox("classic (opencv)", value=False)
+            with alignment_col2:
+                use_neural = st.checkbox("neural (docaligner)", value=True)
+
+            if use_classic and use_neural:
+                st.warning("⚠️ both selected - neural will be used")
+            elif not use_classic and not use_neural:
+                st.warning("⚠️ no algorithm selected - neural is default")
+
+            alignment_mode = "classic" if use_classic and not use_neural else "neural"
+
+            st.caption("**source**")
             source_service = st.text_input(
-                "Source Service", value="visualizer", help="Service identifier"
+                "source service", value="visualizer", help="service identifier"
             )
 
             source_reference = st.text_input(
-                "Source Reference", value="manual-upload", help="Reference identifier"
+                "source reference", value="manual-upload", help="reference identifier"
             )
 
-            st.caption("**QR Formats**")
+            st.caption("**qr formats**")
             qr_col1, qr_col2, qr_col3 = st.columns(3)
 
             with qr_col1:
-                accept_fiscal = st.checkbox("Fiscal", value=True)
+                accept_fiscal = st.checkbox("fiscal", value=True)
             with qr_col2:
-                accept_url = st.checkbox("URL", value=True)
+                accept_url = st.checkbox("url", value=True)
             with qr_col3:
-                accept_unknown = st.checkbox("Unknown", value=False)
+                accept_unknown = st.checkbox("unknown", value=False)
 
         st.write("")
         submitted = st.form_submit_button(
-            "Upload & Process",
+            "upload & process",
             type="primary",
             use_container_width=True,
         )
 
         if submitted:
             if not uploaded_file:
-                st.error("Please select an image")
+                st.error("please select an image")
                 return False
 
             accepted_qr_formats = []
@@ -69,7 +85,7 @@ def render_upload_form(gateway: GatewayClient) -> bool:
             if accept_unknown:
                 accepted_qr_formats.append("unknown")
 
-            with st.spinner("Uploading..."):
+            with st.spinner("uploading..."):
                 uploaded_file.seek(0)
 
                 result = gateway.upload_image(
@@ -77,11 +93,12 @@ def render_upload_form(gateway: GatewayClient) -> bool:
                     filename=uploaded_file.name,
                     source_service=source_service,
                     source_reference=source_reference,
-                    accepted_qr_formats=accepted_qr_formats if accepted_qr_formats else None,
+                    accepted_qr_formats=accepted_qr_formats,
+                    alignment_mode=alignment_mode,
                 )
 
             if result:
-                st.success("✅ Created")
+                st.success(f"✅ created ({alignment_mode} mode)")
                 st.caption(f"`{result['recognitionId'][:16]}...`")
 
                 st.session_state.selected_job_id = result["recognitionId"]
@@ -89,7 +106,7 @@ def render_upload_form(gateway: GatewayClient) -> bool:
 
                 return True
             else:
-                st.error("Failed to upload")
+                st.error("failed to upload")
                 return False
 
     return False

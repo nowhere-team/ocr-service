@@ -29,6 +29,7 @@ export class OcrService {
 			sourceService?: string
 			sourceReference?: string
 			acceptedQrFormats?: Array<'fiscal' | 'url' | 'unknown'>
+            alignmentMode?: 'classic' | 'neural'
 		},
 	): Promise<UploadImageResult> {
 		this.logger.info('uploading image', {
@@ -81,6 +82,7 @@ export class OcrService {
 			sourceService: metadata?.sourceService,
 			sourceReference: metadata?.sourceReference,
 			acceptedQrFormats: metadata?.acceptedQrFormats,
+            alignmentMode: metadata?.alignmentMode,
 		})
 
 		this.logger.info('image uploaded', {

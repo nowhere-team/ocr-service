@@ -73,7 +73,7 @@ services:
       test: [ "CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" ]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 10
 
   tesseract:
     build:
@@ -204,6 +204,7 @@ services:
       LOG_LEVEL: info
       LOG_FORMAT: json
       DEBUG_MODE: "true"
+      DEFAULT_ALIGNMENT_MODE: neural
     depends_on:
       migrator:
         condition: service_completed_successfully

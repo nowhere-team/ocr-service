@@ -29,34 +29,32 @@ export const images = pgTable('images', {
 })
 
 export const recognitionResults = pgTable('recognition_results', {
-	id: uuid('id').primaryKey().defaultRandom(),
-	imageId: uuid('image_id')
-		.notNull()
-		.references(() => images.id, { onDelete: 'cascade' }),
+    id: uuid('id').primaryKey().defaultRandom(),
+    imageId: uuid('image_id')
+        .notNull()
+        .references(() => images.id, { onDelete: 'cascade' }),
 
-	// status
-	status: statusEnum('status').notNull().default('queued'),
-	resultType: resultTypeEnum('result_type'),
+    status: statusEnum('status').notNull().default('queued'),
+    resultType: resultTypeEnum('result_type'),
 
-	// if text
-	rawText: text('raw_text'),
-	confidence: numeric('confidence', { mode: 'number', precision: 3, scale: 2 }),
-	engine: engineEnum('engine'),
-	aligned: boolean('aligned').default(false),
+    rawText: text('raw_text'),
+    confidence: numeric('confidence', { mode: 'number', precision: 3, scale: 2 }),
+    engine: engineEnum('engine'),
+    aligned: boolean('aligned').default(false),
+    usedPreprocessed: boolean('used_preprocessed').default(false),
 
-	// if qr
-	qrData: text('qr_data'),
-	qrFormat: qrFormatEnum('qr_format'),
-	qrLocation: jsonb('qr_location').$type<{ x: number; y: number; width: number; height: number }>(),
+    qrData: text('qr_data'),
+    qrFormat: qrFormatEnum('qr_format'),
+    qrLocation: jsonb('qr_location').$type<{ x: number; y: number; width: number; height: number }>(),
+    foundInPreprocessed: boolean('found_in_preprocessed').default(false),
 
-	// metrics
-	processingTime: integer('processing_time'),
-	queueWaitTime: integer('queue_wait_time'),
-	attemptNumber: integer('attempt_number').notNull().default(1),
-	error: text('error'),
+    processingTime: integer('processing_time'),
+    queueWaitTime: integer('queue_wait_time'),
+    attemptNumber: integer('attempt_number').notNull().default(1),
+    error: text('error'),
 
-	createdAt: timestamptz('created_at').notNull().defaultNow(),
-	completedAt: timestamptz('completed_at'),
+    createdAt: timestamptz('created_at').notNull().defaultNow(),
+    completedAt: timestamptz('completed_at'),
 })
 
 export const imagesRelations = relations(images, ({ many }) => ({

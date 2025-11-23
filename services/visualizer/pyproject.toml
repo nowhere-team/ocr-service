@@ -5,6 +5,8 @@ description = "real-time visualization dashboard for ocr pipeline"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "imageio>=2.37.2",
+    "imageio-ffmpeg>=0.6.0",
     "minio>=7.2.18",
     "pillow>=12.0.0",
     "pydantic>=2.12.4",

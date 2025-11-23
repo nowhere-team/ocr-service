@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     libgl1 \
+    libturbojpeg0-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./

@@ -1,0 +1,2 @@
+ALTER TABLE "recognition_results" ADD COLUMN "used_preprocessed" boolean DEFAULT false;--> statement-breakpoint
+ALTER TABLE "recognition_results" ADD COLUMN "found_in_preprocessed" boolean DEFAULT false;

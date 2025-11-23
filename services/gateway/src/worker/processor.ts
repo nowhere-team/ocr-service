@@ -37,6 +37,7 @@ export async function createWorker(
 					job.data.imageId,
 					job.data.recognitionId,
 					job.data.acceptedQrFormats,
+                    job.data.alignmentMode,
 				)
 
 				const processingTime = Date.now() - startTime
