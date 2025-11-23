@@ -239,7 +239,7 @@ services:
       MINIO_USE_SSL: "false"
       MINIO_BUCKET: images
       GATEWAY_URL: http://gateway:8080
-      DEEPSEEK_API_KEY: sk-8a15917fa490489485482f06e148372a
+      DEEPSEEK_API_KEY: FILL_IT_WITH_YOUR_TOKEN
       DEEPSEEK_API_URL: https://api.deepseek.com/v1/chat/completions
       PAGE_TITLE: "ocr-visualizer"
       MAX_JOBS_DISPLAY: 50
