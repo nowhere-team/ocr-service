@@ -3,6 +3,7 @@ import re
 import streamlit as st
 
 from ..animator import PipelineAnimator
+from ..deepseek_client import DeepSeekClient
 from ..storage_client import StorageClient
 from .utils import format_duration, format_timestamp, get_status_emoji
 
@@ -211,13 +212,50 @@ def render_pipeline_view(job: dict, storage: StorageClient):
                     version_badge = "📄 preprocessed" if used_preprocessed else "🖼️ warped"
                     st.metric("Version", version_badge)
 
+                raw_text = text_data.get("raw", "")
                 st.text_area(
                     "Text",
-                    text_data.get("raw", ""),
+                    raw_text,
                     height=200,
                     disabled=True,
                     label_visibility="collapsed",
                 )
+
+                # deepseek structuring button
+                if raw_text:
+                    structure_col1, structure_col2 = st.columns([1, 3])
+                    with structure_col1:
+                        if st.button(
+                            "🧠 Структурировать через DeepSeek",
+                            use_container_width=True,
+                            type="primary",
+                        ):
+                            st.session_state[f"structure_job_{job_id}"] = True
+
+                    with structure_col2:
+                        if st.session_state.get(f"structure_job_{job_id}", False) and st.button(
+                            "✕ Закрыть", use_container_width=True
+                        ):
+                            st.session_state[f"structure_job_{job_id}"] = False
+                            if f"structured_data_{job_id}" in st.session_state:
+                                del st.session_state[f"structured_data_{job_id}"]
+                            st.rerun()
+
+                    if st.session_state.get(f"structure_job_{job_id}", False):
+                        if f"structured_data_{job_id}" not in st.session_state:
+                            with st.spinner("⏳ Обработка через DeepSeek..."):
+                                deepseek = DeepSeekClient()
+                                structured = deepseek.structure_text(raw_text)
+                                st.session_state[f"structured_data_{job_id}"] = structured
+
+                        structured = st.session_state[f"structured_data_{job_id}"]
+
+                        if "error" in structured:
+                            st.error(f"❌ Ошибка: {structured['error']}")
+                            if "details" in structured:
+                                st.caption(structured["details"])
+                        else:
+                            _render_structured_result(structured)
 
             elif result_type == "qr":
                 qr_data = job.get("qr", {})
@@ -233,6 +271,80 @@ def render_pipeline_view(job: dict, storage: StorageClient):
         elif status == "failed":
             st.write("")
             st.error(f"**Error:** {job.get('error', 'unknown error')}")
+
+
+def _render_structured_result(data: dict):
+    """render structured data from deepseek"""
+    st.write("")
+    st.markdown("##### 📊 структурированные данные")
+
+    # confidence and warnings
+    conf_col, warn_col = st.columns([1, 2])
+    with conf_col:
+        confidence = data.get("confidence", "unknown")
+        conf_emoji = {"high": "✅", "medium": "⚠️", "low": "❌"}.get(confidence, "❓")
+        conf_labels = {"high": "высокая", "medium": "средняя", "low": "низкая"}
+        conf_label = conf_labels.get(confidence, confidence)
+        st.metric("уверенность", f"{conf_emoji} {conf_label}")
+
+    with warn_col:
+        warnings = data.get("warnings", [])
+        if warnings:
+            st.warning("⚠️ предупреждения:\n" + "\n".join([f"- {w}" for w in warnings]))
+
+    st.write("")
+
+    # merchant and metadata
+    info_col1, info_col2 = st.columns(2)
+    with info_col1:
+        merchant = data.get("merchant")
+        if merchant:
+            st.info(f"**продавец:** {merchant}")
+    with info_col2:
+        date = data.get("date")
+        if date:
+            st.info(f"**дата:** {date}")
+
+    st.write("")
+
+    # items table
+    items = data.get("items", [])
+    if items:
+        st.markdown("**позиции:**")
+
+        # prepare table data
+        table_data = []
+        for item in items:
+            table_data.append(
+                {
+                    "название": item.get("name", "—"),
+                    "кол-во": item.get("quantity") if item.get("quantity") is not None else "—",
+                    "цена": f"{item.get('price'):.2f}" if item.get("price") is not None else "—",
+                    "сумма": f"{item.get('total'):.2f}" if item.get("total") is not None else "—",
+                }
+            )
+
+        st.dataframe(table_data, use_container_width=True, hide_index=True)
+
+    st.write("")
+
+    # totals
+    total_col1, total_col2, total_col3 = st.columns(3)
+
+    with total_col1:
+        subtotal = data.get("subtotal")
+        if subtotal is not None:
+            st.metric("подытог", f"{subtotal:.2f} ₽")
+
+    with total_col2:
+        tax = data.get("tax")
+        if tax is not None:
+            st.metric("ндс", f"{tax:.2f} ₽")
+
+    with total_col3:
+        total = data.get("total")
+        if total is not None:
+            st.metric("итого", f"{total:.2f} ₽")
 
 
 def render_stage(stage: dict, storage: StorageClient):
